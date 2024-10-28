@@ -16,8 +16,10 @@ void display_sensor_details();
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Accelerometer Test");
+  while(!Serial){
 
+  }
+  Serial.println("Serial inited");
   // Throws error if LSM303 is not detected
   if(!accel.begin()) {
     Serial.println("No LSM303 detected. Check wiring.");
@@ -35,6 +37,7 @@ void setup() {
 }
 
 void loop() {
+
   sensors_event_t event;
   accel.getEvent(&event);
   Serial.println("test");
