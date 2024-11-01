@@ -16,6 +16,23 @@ float q2 = 0.0f;
 float q3 = 0.0f;
 float B_madgwick = 0.04;
 
+
+float invSqrt(float x) {
+    // use either fast inverse sqrt or just regular computation, depending on valuing speed or accuracy
+
+    // Fast inverse sqrt algorithm
+    float halfx = 0.5f * x;
+    float y = x;
+    long i = *(long*)&y;
+    i = 0x5f3759df - (i>>1);
+    y = *(float*)&i;
+    y = y * (1.5f - (halfx * y * y));
+    y = y * (1.5f - (halfx * y * y));
+    return y;
+
+    //return 1.0/sqrtf(x); // Teensy is fast enough to just take the compute penalty
+}
+
 void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz, float invSampleFreq) {
     //DESCRIPTION: Attitude estimation through sensor fusion - 9DOF
     /*
@@ -124,20 +141,4 @@ void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float 
     roll_IMU = atan2(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2)*57.29577951; //degrees
     pitch_IMU = -asin(constrain(-2.0f * (q1*q3 - q0*q2),-0.999999,0.999999))*57.29577951; //degrees
     yaw_IMU = -atan2(q1*q2 + q0*q3, 0.5f - q2*q2 - q3*q3)*57.29577951; //degrees
-}
-
-float invSqrt(float x) {
-    // use either fast inverse sqrt or just regular computation, depending on valuing speed or accuracy
-
-    // Fast inverse sqrt algorithm
-    float halfx = 0.5f * x;
-    float y = x;
-    long i = *(long*)&y;
-    i = 0x5f3759df - (i>>1);
-    y = *(float*)&i;
-    y = y * (1.5f - (halfx * y * y));
-    y = y * (1.5f - (halfx * y * y));
-    return y;
-
-    //return 1.0/sqrtf(x); // Teensy is fast enough to just take the compute penalty
 }

@@ -1,3 +1,4 @@
+/*
 #include <Arduino.h>
 #include <Adafruit_LSM303_Accel.h>
 #include <Adafruit_Sensor.h>
@@ -72,3 +73,5 @@ void display_sensor_details() {
   Serial.println("");
   delay(500);
 }
+
+*/
