@@ -38,3 +38,26 @@ void loop() {
   
   delay(250);
 }
+// Servo myservo;  // create servo object to control a servo
+// // twelve servo objects can be created on most boards
+
+
+// void setup() {
+//   Serial.begin(11520);
+//   myservo.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
+//   myservo.write(0);
+//   Serial.println("Waiting for Startup");
+//   delay(3000);
+  
+  
+// }
+
+// void loop() {
+//   Serial.println("Running");
+//   if(digitalRead(16)){
+//       myservo.write(50);
+//   }
+//   else{
+//     myservo.write(0);
+//   }
+// }
