@@ -1,3 +1,4 @@
+/*
 #include <Arduino.h>
 #include <Wire.h>
 #include "MPU9250.h"
@@ -117,3 +118,4 @@ void calibrateMagnetometer() {
   
     while(1); //Halt code so it won't enter main loop until this function commented out
 }
+*/
