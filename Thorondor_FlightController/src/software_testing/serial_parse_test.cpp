@@ -1,5 +1,6 @@
+/*
 #include <Arduino.h>
-# include "parsing.h"
+#include "parsing.h"
 
 String input;
 int motor_L;
@@ -28,3 +29,4 @@ void loop() {
         Serial.println(servo_R);
     }
 }
+*/

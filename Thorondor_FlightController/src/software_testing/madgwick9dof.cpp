@@ -23,14 +23,14 @@ float invSqrt(float x) {
     // Fast inverse sqrt algorithm
     float halfx = 0.5f * x;
     float y = x;
-    long i = *(long*)&y;
-    i = 0x5f3759df - (i>>1);
-    y = *(float*)&i;
-    y = y * (1.5f - (halfx * y * y));
+    long i = *(long*)&y; // trick computer into thinking it's using an integer (EVIL!!!!!!)
+    i = 0x5f3759df - (i>>1); // black magic with bit shifting
+    y = *(float*)&i; // reverses int approximation back into float
+    y = y * (1.5f - (halfx * y * y)); // 2 iterations of Newton's method to improve solution
     y = y * (1.5f - (halfx * y * y));
     return y;
 
-    //return 1.0/sqrtf(x); // Teensy is fast enough to just take the compute penalty
+    //return 1.0/sqrtf(x); // Teensy is fast enough to just take the compute penalty, but is a RP2040 as fast?
 }
 
 void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz, float invSampleFreq) {
