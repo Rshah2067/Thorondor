@@ -1,63 +1,51 @@
-#include <Arduino.h>
-#include <Adafruit_LSM303_Accel.h>
+#include<Wire.h>
+#include <Adafruit_BusIO_Register.h>
 #include <Adafruit_Sensor.h>
-#include <Wire.h>
-
-
-// Initializes sensor as an object and assigns it unique ID
-Adafruit_LSM303_Accel_Unified accel = Adafruit_LSM303_Accel_Unified(54321);
-Ada
-void display_sensor_details();
-
+#include<Servo.h>
+Servo starboardMotor;
+Servo starboardServo;
+Servo portMotor;
+Servo portServo;
+//NOTES:
+//Starboard servo nuetral position is 20, max back is 10
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   while(!Serial){
-
+    
   }
-  Serial.println("Serial inited");
-  // Throws error if LSM303 is not detected
-  if(!accel.begin()) {
-    Serial.println("No LSM303 detected. Check wiring.");
-    while(1);
-  }
-
-  display_sensor_details();
+  starboardMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
+  portMotor.attach(3,1000,2000);
+  starboardMotor.write(0);
+  portMotor.write(0);
+  starboardServo.attach(4);
+  starboardServo.write(20);
+  portServo.attach(5);
+  portServo.write(160);
+  Serial.println("Type 'go' to start.");
   
-  // Sets the accelerometer range to 4G
-  accel.setRange(LSM303_RANGE_4G);
-
-  // Sets accelerometer to high resolution, note: draws more power
-  accel.setMode(LSM303_MODE_HIGH_RESOLUTION);
-
+  while (true) {
+    if (Serial.available() > 0) {        // Check if data is available to read
+      String input = Serial.readString(); // Read the input as a string
+      
+      input.trim();                       // Remove any leading/trailing whitespace
+      
+      if (input.equalsIgnoreCase("go")) { // Check if the input matches "go" (case-insensitive)
+        Serial.println("Starting program...");
+        break;                            // Exit the loop and continue the program
+      } else {
+        Serial.println("Invalid input. Type 'go' to start."); // Prompt again
+      }
+    }
+  }
+  //portServo.write(135);
+  delay(300);
 }
 
 void loop() {
-
-  sensors_event_t event;
-  accel.getEvent(&event);
-  
-  delay(250);
+  Serial.println("running");
+  starboardServo.write(50);
+  portServo.write(170);
+  portMotor.write(50);
+  starboardMotor.write(50);
 }
-// Servo myservo;  // create servo object to control a servo
-// // twelve servo objects can be created on most boards
-
-
-// void setup() {
-//   Serial.begin(11520);
-//   myservo.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
-//   myservo.write(0);
-//   Serial.println("Waiting for Startup");
-//   delay(3000);
-  
-  
-// }
-
-// void loop() {
-//   Serial.println("Running");
-//   if(digitalRead(16)){
-//       myservo.write(50);
-//   }
-//   else{
-//     myservo.write(0);
-//   }
-// }
+//Servo Gear ratio is 2:1
