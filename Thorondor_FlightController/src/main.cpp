@@ -1,140 +1,396 @@
-#include<Wire.h>
+#include <Arduino.h>
+#include <Wire.h>
 #include <Adafruit_BusIO_Register.h>
 #include <Adafruit_Sensor.h>
-#include<Servo.h>
-#include<madwick9dof.h>
-#include<MPU9250.h>
+#include <Servo.h>
+#include "MPU9250.h"
+
+/*
+Several directive choices
+IMU_CALIBRATION: Only triggers IMU calibration
+IMU_TEST: Triggers IMU testing
+YAW_TEST: Allows yaw testing
+*/
+#define IMU_TEST
+
 //Initialize Servos and Motors
 Servo starboardMotor;
 Servo starboardServo;
 Servo portMotor;
 Servo portServo;
+
 //Initialize IMU
-MPU9250 mpu9250(Wire,0x68);
-//IMU Error Parameters
+MPU9250 mpu;
+
+//IMU error parameters, manually enter them after calibration
 const float MagErrorX = 0.0f;
 const float MagErrorY = 0.0f;
 const float MagErrorZ = 0.0f;
 const float MagScaleX = 1.0f;
 const float MagScaleY = 1.0f;
 const float MagScaleZ = 1.0f;
-//Define the 
+
+const float AccErrorX = 0.0f;
+const float AccErrorY = 0.0f;
+const float AccErrorZ = 0.0f;
+
+const float GyroErrorX = 0.0f;
+const float GyroErrorY = 0.0f;
+const float GyroErrorZ = 0.0f;
+
+// Defining IMU variables
 float Ax, Ay, Az, Gx, Gy, Gz, Mx, My, Mz;
+
+// Madgwick filter gradient descent iterations
+const int n_filter_iter = 10;
+
+// Defining pitch, roll, yaw angles
+float pitch_angle;
+float roll_angle;
+float yaw_angle;
+
+// Initialize quaternion for madgwick filter
+float q0 = 1.0f; 
+float q1 = 0.0f;
+float q2 = 0.0f;
+float q3 = 0.0f;
+
+// Setting beta value based off of these parameters
+float GyroMeasError = PI * (40.0f / 180.0f); // gyroscope measurement error in rads/s (start at 40 deg/s)
+float GyroMeasDrift = PI * (0.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
+float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta
+
+void IMU_init();
+void read_IMU();
+void print_calibration();
+float invSqrt(float x);
+void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz, float invSampleFreq);
 
 //NOTES:
 //Starboard servo nuetral position is 20, max back is 10
+//Servo Gear ratio is 2:1
 void setup() {
   //Start Serial
-  Serial.begin(9600);
-  while(!Serial){
-    
-  }
-  starboardMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
-  portMotor.attach(3,1000,2000);
-  starboardMotor.write(0);
-  portMotor.write(0);
-  starboardServo.attach(4);
-  starboardServo.write(20);
-  portServo.attach(5);
-  portServo.write(160);
-  Serial.println("Type 'go' to start.");
+  Serial.begin(115200);
+  Wire.begin();
+  delay(5000);
   
-  while (true) {
-    if (Serial.available() > 0) {        // Check if data is available to read
-      String input = Serial.readString(); // Read the input as a string
+  // Enables yaw test functionality
+  #ifdef YAW_TEST
+    while(!Serial){
       
-      input.trim();                       // Remove any leading/trailing whitespace
-      
-      if (input.equalsIgnoreCase("go")) { // Check if the input matches "go" (case-insensitive)
-        Serial.println("Starting program...");
-        break;                            // Exit the loop and continue the program
-      } else {
-        Serial.println("Invalid input. Type 'go' to start."); // Prompt again
+    }
+    starboardMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
+    portMotor.attach(3,1000,2000);
+    starboardMotor.write(0);
+    portMotor.write(0);
+    starboardServo.attach(4);
+    starboardServo.write(20);
+    portServo.attach(5);
+    portServo.write(160);
+    Serial.println("Type 'go' to start.");
+    
+    while (true) {
+      if (Serial.available() > 0) {        // Check if data is available to read
+        String input = Serial.readString(); // Read the input as a string
+        
+        input.trim();                       // Remove any leading/trailing whitespace
+        
+        if (input.equalsIgnoreCase("go")) { // Check if the input matches "go" (case-insensitive)
+          Serial.println("Starting program...");
+          break;                            // Exit the loop and continue the program
+        } else {
+          Serial.println("Invalid input. Type 'go' to start."); // Prompt again
+        }
       }
     }
-  }
-  //portServo.write(135);
-  delay(300);
-}
+    //portServo.write(135);
+    delay(300);
+  #endif
 
-void loop() {
-  Serial.println("running");
-  starboardServo.write(50);
-  portServo.write(170);
-  portMotor.write(50);
-  starboardMotor.write(50);
-}
-//Servo Gear ratio is 2:1
-void IMU_init() {
-    int status = mpu9250.begin();
-
-    if (status < 0) {
-      Serial.println("MPU9250 initialization unsuccessful, check wiring.");
-      while(1);
-    }
-
-    // set desired fullscale ranges for the sensors
-    mpu9250.setGyroRange(MPU9250::GYRO_RANGE_500DPS);
-    mpu9250.setAccelRange(MPU9250::ACCEL_RANGE_4G);
-
-    // setting calibration parameters for magnetometer
-    mpu9250.setMagCalX(MagErrorX, MagScaleX);
-    mpu9250.setMagCalY(MagErrorY, MagScaleY);
-    mpu9250.setMagCalZ(MagErrorZ, MagScaleZ);
-    mpu9250.setSrd(0); //sets gyro and accel read to 1khz, magnetometer read to 100hz
-}
-
-void read_IMU() {
-    // Reads sensor data and applies them to variables
-    mpu9250.readSensor();
-
-    Ax = mpu9250.getAccelX_mss();
-    Ay = mpu9250.getAccelY_mss();
-    Az = mpu9250.getAccelZ_mss();
-
-    Gx = mpu9250.getGyroX_rads();
-    Gy = mpu9250.getGyroY_rads();
-    Gz = mpu9250.getGyroZ_rads();
-
-    Mx = mpu9250.getMagX_uT();
-    My = mpu9250.getMagY_uT();
-    Mz = mpu9250.getMagZ_uT();
-}
-
-void general_calibration() {
-    // Calibration with prompts for all 3 sensors in the IMU
+  // Initializing IMU
+  IMU_init();
+  
+  // Enables IMU calibration functionality, stops in an infinite loop
+  #ifdef IMU_CALIBRATION
+    // IMU Calibration
+    // Store all necessary calibration parameters into corresponding variables
     Serial.println("Accel Gyro calibration will start in 5sec.");
     Serial.println("Please leave the device still on the flat plane.");
+    mpu.verbose(true);
     delay(5000);
-    mpu9250.calibrateAccel();
-    mpu9250.calibrateGyro();
-    
+    mpu.calibrateAccelGyro();
+
     Serial.println("Mag calibration will start in 5sec.");
     Serial.println("Please Wave device in a figure eight until done.");
     delay(5000);
-    mpu9250.calibrateMag();
+    mpu.calibrateMag();
 
-    // Printing calibration result parameters
+    print_calibration();
+    mpu.verbose(false);
+
+    while(1);
+  #endif
+}
+
+void loop() {
+  #ifdef YAW_TEST
+    Serial.println("running");
+    starboardServo.write(50);
+    portServo.write(170);
+    portMotor.write(50);
+    starboardMotor.write(50);
+  #endif
+
+  // Reads IMU data and assigns them to corresponding variables
+  read_IMU();
+
+  
+  // 10 iterations for madgwick
+  for (int i = 0; i < n_filter_iter; i++) {
+    Madgwick(Gx, Gy, Gz, Ax, Ay, Az, Mx, My, Mz, 0.005f);
+  }
+  
+  #ifdef IMU_TEST
+    Serial.print(yaw_angle);
+    Serial.print(",");
+    Serial.print(pitch_angle);
+    Serial.print(",");
+    Serial.print(roll_angle);
+  #endif
+
+}
+
+void IMU_init() {
+  /* 
+  Various IMU Settings:
+  - Acc range is 4Gs
+  - Gyro range is 500 DPS
+  - Mag output resolution is 16 bits
+  - Sampling rate is 200Hz
+  - Configures low pass filter of 41Hz for gyro
+  - Configures low pass filter of 45Hz for acc
+  */
+  MPU9250Setting setting;
+  setting.accel_fs_sel = ACCEL_FS_SEL::A4G;
+  setting.gyro_fs_sel = GYRO_FS_SEL::G500DPS;
+  setting.mag_output_bits = MAG_OUTPUT_BITS::M16BITS;
+  setting.fifo_sample_rate = FIFO_SAMPLE_RATE::SMPL_200HZ;
+  setting.gyro_fchoice = 0x03;
+  setting.gyro_dlpf_cfg = GYRO_DLPF_CFG::DLPF_41HZ;
+  setting.accel_fchoice = 0x01;
+  setting.accel_dlpf_cfg = ACCEL_DLPF_CFG::DLPF_45HZ;
+
+  // Sets up IMU to default I2C register
+  mpu.setup(0x68, setting);
+
+  if (!mpu.setup(0x68)) {
+      while(1) {
+        Serial.println("MPU Connection Failed. Check wiring.");
+      }
+  }
+
+  // Set sensor bias and scaling accordingly
+  mpu.setAccBias(AccErrorX, AccErrorY, AccErrorZ);
+  mpu.setGyroBias(GyroErrorX, GyroErrorY, GyroErrorZ);
+  mpu.setMagBias(MagErrorX, MagErrorY, MagErrorZ);
+  mpu.setMagScale(MagScaleX, MagScaleY, MagScaleZ);
+    
+  // Selecting to use madgwick filter with 10 iterations for convergence
+  // Tentative depending on independent implementation of madgwick
+  /*
+  mpu.selectFilter(QuatFilterSel::MADGWICK);
+  mpu.setFilterIterations(10);
+  */
+
+  /*
+  // setting calibration parameters for magnetometer
+  mpu.setMagBias(MagErrorX, MagErrorY, MagErrorZ);
+  mpu.setMagScale(MagScaleX, MagScaleY, MagScaleZ);
+  
+  mpu.setAccBias(AccErrorX, AccErrorY, AccErrorZ);
+  
+  mpu.setGyroBias(GyroErrorX, GyroErrorY, GyroErrorZ);
+  */
+}
+
+void read_IMU() {
+  // functions for getting accelerometer and gyro data does not compensate for bias automatically
+  Ax = mpu.getAccX() - mpu.getAccBiasX();
+  Ay = mpu.getAccY() - mpu.getAccBiasY();
+  Az = mpu.getAccZ() - mpu.getAccBiasZ();
+  Gx = mpu.getGyroX() - mpu.getGyroBiasX();
+  Gy = mpu.getGyroY() - mpu.getGyroBiasY();
+  Gz = mpu.getGyroZ() - mpu.getGyroBiasZ();
+
+  // functions getting magnetometer data automatically scales and compensates for bias
+  Mx = mpu.getMagX();
+  My = mpu.getMagY();
+  Mz = mpu.getMagZ();
+
+  /*
+  // Reads sensor data and applies them to variables (not sure if this includes filtering/bias offsetting)
+  if (mpu.update()) {
+      Serial.print(mpu.getYaw()); Serial.print(",");
+      Serial.print(mpu.getPitch()); Serial.print(",");
+      Serial.println(mpu.getRoll());
+  }
+  */
+}
+
+void print_calibration() {
     Serial.println("Calibration Parameters:");
+    Serial.println("Accelerometer Bias (g): ");
+    Serial.print(mpu.getAccBiasX() * 1000.f / (float)MPU9250::CALIB_ACCEL_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getAccBiasY() * 1000.f / (float)MPU9250::CALIB_ACCEL_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getAccBiasZ() * 1000.f / (float)MPU9250::CALIB_ACCEL_SENSITIVITY);
+    Serial.println();
+    Serial.println("Gyro Bias (deg/s): ");
+    Serial.print(mpu.getGyroBiasX() / (float)MPU9250::CALIB_GYRO_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getGyroBiasY() / (float)MPU9250::CALIB_GYRO_SENSITIVITY);
+    Serial.print(", ");
+    Serial.print(mpu.getGyroBiasZ() / (float)MPU9250::CALIB_GYRO_SENSITIVITY);
+    Serial.println();
+    Serial.println("Magnetometer Bias (mG): ");
+    Serial.print(mpu.getMagBiasX());
+    Serial.print(", ");
+    Serial.print(mpu.getMagBiasY());
+    Serial.print(", ");
+    Serial.print(mpu.getMagBiasZ());
+    Serial.println();
+    Serial.println("Magnetometer Scale: ");
+    Serial.print(mpu.getMagScaleX());
+    Serial.print(", ");
+    Serial.print(mpu.getMagScaleY());
+    Serial.print(", ");
+    Serial.print(mpu.getMagScaleZ());
+    Serial.println();
+}
 
-    Serial.println("Accelerometer Bias XYZ:");
-    Serial.print(mpu9250.getAccelBiasX_mss());
-    Serial.print(",");
-    Serial.print(mpu9250.getAccelBiasY_mss());
-    Serial.print(",");
-    Serial.println(mpu9250.getAccelBiasZ_mss());
+float invSqrt(float x) {
+    // use either fast inverse sqrt or just regular computation, depending on valuing speed or accuracy
+    // Fast inverse sqrt algorithm
+    float halfx = 0.5f * x;
+    float y = x;
+    long i = *(long*)&y; // trick computer into thinking it's using an integer (EVIL!!!!!!)
+    i = 0x5f3759df - (i>>1); // black magic with bit shifting
+    y = *(float*)&i; // reverses int approximation back into float
+    y = y * (1.5f - (halfx * y * y)); // 2 iterations of Newton's method to improve solution
+    y = y * (1.5f - (halfx * y * y));
+    return y;
 
-    Serial.println("Gyro Bias XYZ:");
-    Serial.print(mpu9250.getGyroBiasX_rads());
-    Serial.print(",");
-    Serial.print(mpu9250.getGyroBiasY_rads());
-    Serial.print(",");
-    Serial.print(mpu9250.getGyroBiasZ_rads());
+    //return 1.0/sqrtf(x); // Teensy is fast enough to just take the compute penalty, but is a RP2040 as fast?
+}
 
-    Serial.println("Magnetometer Bias XYZ:");
-    Serial.print(mpu9250.getMagBiasX_uT());
-    Serial.print(",");
-    Serial.print(mpu9250.getMagBiasY_uT());
-    Serial.print(",");
-    Serial.print(mpu9250.getMagBiasZ_uT());
+void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz, float invSampleFreq) {
+    //DESCRIPTION: Attitude estimation through sensor fusion - 9DOF
+    /*
+    * This function fuses the accelerometer gyro, and magnetometer readings AccX, AccY, AccZ, GyroX, GyroY, GyroZ, MagX, MagY, and MagZ for attitude estimation.
+    * Don't worry about the math. There is a tunable parameter B_madgwick in the user specified variable section which basically
+    * adjusts the weight of gyro data in the state estimate. Higher beta leads to noisier estimate, lower 
+    * beta leads to slower to respond estimate. It is currently tuned for 2kHz loop rate. This function updates the roll_IMU,
+    * pitch_IMU, and yaw_IMU variables which are in degrees. If magnetometer data is not available, this function calls Madgwick6DOF() instead.
+    */
+    float recipNorm;
+    float s0, s1, s2, s3;
+    float qDot1, qDot2, qDot3, qDot4;
+    float hx, hy;
+    float _2q0mx, _2q0my, _2q0mz, _2q1mx, _2bx, _2bz, _4bx, _4bz, _2q0, _2q1, _2q2, _2q3, _2q0q2, _2q2q3, q0q0, q0q1, q0q2, q0q3, q1q1, q1q2, q1q3, q2q2, q2q3, q3q3;
+
+    //Convert gyroscope degrees/sec to radians/sec
+    gx *= 0.0174533f;
+    gy *= 0.0174533f;
+    gz *= 0.0174533f;
+
+    //Rate of change of quaternion from gyroscope
+    qDot1 = 0.5f * (-q1 * gx - q2 * gy - q3 * gz);
+    qDot2 = 0.5f * (q0 * gx + q2 * gz - q3 * gy);
+    qDot3 = 0.5f * (q0 * gy - q1 * gz + q3 * gx);
+    qDot4 = 0.5f * (q0 * gz + q1 * gy - q2 * gx);
+
+    //Compute feedback only if accelerometer measurement valid (avoids NaN in accelerometer normalisation)
+    if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f))) {
+
+        // Normalise accelerometer measurement for each component
+        recipNorm = invSqrt(ax * ax + ay * ay + az * az);
+        ax *= recipNorm;
+        ay *= recipNorm;
+        az *= recipNorm;
+
+        // Normalise magnetometer measurement for each component
+        recipNorm = invSqrt(mx * mx + my * my + mz * mz);
+        mx *= recipNorm;
+        my *= recipNorm;
+        mz *= recipNorm;
+
+        //Auxiliary variables to avoid repeated arithmetic
+        _2q0mx = 2.0f * q0 * mx;
+        _2q0my = 2.0f * q0 * my;
+        _2q0mz = 2.0f * q0 * mz;
+        _2q1mx = 2.0f * q1 * mx;
+        _2q0 = 2.0f * q0;
+        _2q1 = 2.0f * q1;
+        _2q2 = 2.0f * q2;
+        _2q3 = 2.0f * q3;
+        _2q0q2 = 2.0f * q0 * q2;
+        _2q2q3 = 2.0f * q2 * q3;
+        q0q0 = q0 * q0;
+        q0q1 = q0 * q1;
+        q0q2 = q0 * q2;
+        q0q3 = q0 * q3;
+        q1q1 = q1 * q1;
+        q1q2 = q1 * q2;
+        q1q3 = q1 * q3;
+        q2q2 = q2 * q2;
+        q2q3 = q2 * q3;
+        q3q3 = q3 * q3;
+
+        //Reference direction of Earth's magnetic field
+        hx = mx * q0q0 - _2q0my * q3 + _2q0mz * q2 + mx * q1q1 + _2q1 * my * q2 + _2q1 * mz * q3 - mx * q2q2 - mx * q3q3;
+        hy = _2q0mx * q3 + my * q0q0 - _2q0mz * q1 + _2q1mx * q2 - my * q1q1 + my * q2q2 + _2q2 * mz * q3 - my * q3q3;
+        _2bx = sqrtf(hx * hx + hy * hy);
+        _2bz = -_2q0mx * q2 + _2q0my * q1 + mz * q0q0 + _2q1mx * q3 - mz * q1q1 + _2q2 * my * q3 - mz * q2q2 + mz * q3q3;
+        _4bx = 2.0f * _2bx;
+        _4bz = 2.0f * _2bz;
+
+        //Gradient decent algorithm corrective step
+        s0 = -_2q2 * (2.0f * q1q3 - _2q0q2 - ax) + _2q1 * (2.0f * q0q1 + _2q2q3 - ay) - _2bz * q2 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q3 + _2bz * q1) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q2 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+        s1 = _2q3 * (2.0f * q1q3 - _2q0q2 - ax) + _2q0 * (2.0f * q0q1 + _2q2q3 - ay) - 4.0f * q1 * (1 - 2.0f * q1q1 - 2.0f * q2q2 - az) + _2bz * q3 * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q2 + _2bz * q0) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q3 - _4bz * q1) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+        s2 = -_2q0 * (2.0f * q1q3 - _2q0q2 - ax) + _2q3 * (2.0f * q0q1 + _2q2q3 - ay) - 4.0f * q2 * (1 - 2.0f * q1q1 - 2.0f * q2q2 - az) + (-_4bx * q2 - _2bz * q0) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (_2bx * q1 + _2bz * q3) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + (_2bx * q0 - _4bz * q2) * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+        s3 = _2q1 * (2.0f * q1q3 - _2q0q2 - ax) + _2q2 * (2.0f * q0q1 + _2q2q3 - ay) + (-_4bx * q3 + _2bz * q1) * (_2bx * (0.5f - q2q2 - q3q3) + _2bz * (q1q3 - q0q2) - mx) + (-_2bx * q0 + _2bz * q2) * (_2bx * (q1q2 - q0q3) + _2bz * (q0q1 + q2q3) - my) + _2bx * q1 * (_2bx * (q0q2 + q1q3) + _2bz * (0.5f - q1q1 - q2q2) - mz);
+
+        // normalise step magnitude for each component
+        recipNorm = invSqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3);
+        s0 *= recipNorm;
+        s1 *= recipNorm;
+        s2 *= recipNorm;
+        s3 *= recipNorm;
+
+        //Apply feedback step
+        qDot1 -= B_madgwick * s0;
+        qDot2 -= B_madgwick * s1;
+        qDot3 -= B_madgwick * s2;
+        qDot4 -= B_madgwick * s3;
+    }
+
+    //Integrate rate of change of quaternion to yield quaternion
+    q0 += qDot1 * invSampleFreq;
+    q1 += qDot2 * invSampleFreq;
+    q2 += qDot3 * invSampleFreq;
+    q3 += qDot4 * invSampleFreq;
+
+    //Normalize quaternion
+    recipNorm = invSqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
+    q0 *= recipNorm;
+    q1 *= recipNorm;
+    q2 *= recipNorm;
+    q3 *= recipNorm;
+
+    //compute angles - NWU
+    roll_angle = atan2(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2)*57.29577951; //degrees
+    pitch_angle = -asin(constrain(-2.0f * (q1*q3 - q0*q2),-0.999999,0.999999))*57.29577951; //degrees
+    yaw_angle = -atan2(q1*q2 + q0*q3, 0.5f - q2*q2 - q3*q3)*57.29577951; //degrees
 }

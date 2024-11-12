@@ -1,23 +1,24 @@
 #include <Arduino.h>
 
-float AccX, AccY, AccZ;
-float AccX_prev, AccY_prev, AccZ_prev;
-float GyroX, GyroY, GyroZ;
-float GyroX_prev, GyroY_prev, GyroZ_prev;
-float MagX, MagY, MagZ;
-float MagX_prev, MagY_prev, MagZ_prev;
-float roll_IMU, pitch_IMU, yaw_IMU;
-float roll_IMU_prev, pitch_IMU_prev;
-float q0 = 1.0f; //Initialize quaternion for madgwick filter
+// Defining pitch, roll, yaw angles
+float pitch_angle;
+float roll_angle;
+float yaw_angle;
+
+// Initialize quaternion for madgwick filter
+float q0 = 1.0f; 
 float q1 = 0.0f;
 float q2 = 0.0f;
 float q3 = 0.0f;
-float B_madgwick = 0.04;
+
+// Setting beta value based off of these parameters
+float GyroMeasError = PI * (40.0f / 180.0f); // gyroscope measurement error in rads/s (start at 40 deg/s)
+float GyroMeasDrift = PI * (0.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
+float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta
 
 
 float invSqrt(float x) {
     // use either fast inverse sqrt or just regular computation, depending on valuing speed or accuracy
-
     // Fast inverse sqrt algorithm
     float halfx = 0.5f * x;
     float y = x;
@@ -136,7 +137,7 @@ void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float 
     q3 *= recipNorm;
 
     //compute angles - NWU
-    roll_IMU = atan2(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2)*57.29577951; //degrees
-    pitch_IMU = -asin(constrain(-2.0f * (q1*q3 - q0*q2),-0.999999,0.999999))*57.29577951; //degrees
-    yaw_IMU = -atan2(q1*q2 + q0*q3, 0.5f - q2*q2 - q3*q3)*57.29577951; //degrees
+    roll_angle = atan2(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2)*57.29577951; //degrees
+    pitch_angle = -asin(constrain(-2.0f * (q1*q3 - q0*q2),-0.999999,0.999999))*57.29577951; //degrees
+    yaw_angle = -atan2(q1*q2 + q0*q3, 0.5f - q2*q2 - q3*q3)*57.29577951; //degrees
 }
