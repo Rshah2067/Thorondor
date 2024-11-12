@@ -11,7 +11,7 @@ IMU_CALIBRATION: Only triggers IMU calibration
 IMU_TEST: Triggers IMU testing
 YAW_TEST: Allows yaw testing
 */
-#define IMU_TEST
+#define NA 
 
 //Initialize Servos and Motors
 Servo starboardMotor;
@@ -22,21 +22,22 @@ Servo portServo;
 //Initialize IMU
 MPU9250 mpu;
 
-//IMU error parameters, manually enter them after calibration
-const float MagErrorX = 0.0f;
-const float MagErrorY = 0.0f;
-const float MagErrorZ = 0.0f;
-const float MagScaleX = 1.0f;
-const float MagScaleY = 1.0f;
-const float MagScaleZ = 1.0f;
+// IMU error parameters, manually enter them after calibration
+// These values are calibrated for test stand purposes
+const float MagErrorX = 343.54f;
+const float MagErrorY = -354.35f;
+const float MagErrorZ = 814.17f;
+const float MagScaleX = 1.59f;
+const float MagScaleY = 1.12f;
+const float MagScaleZ = 0.68f;
 
-const float AccErrorX = 0.0f;
-const float AccErrorY = 0.0f;
-const float AccErrorZ = 0.0f;
+const float AccErrorX = 1.89f;
+const float AccErrorY = -27.41f;
+const float AccErrorZ = 2.87f;
 
-const float GyroErrorX = 0.0f;
-const float GyroErrorY = 0.0f;
-const float GyroErrorZ = 0.0f;
+const float GyroErrorX = 8.59f;
+const float GyroErrorY = -2.53f;
+const float GyroErrorZ = -0.62f;
 
 // Defining IMU variables
 float Ax, Ay, Az, Gx, Gy, Gz, Mx, My, Mz;
@@ -145,18 +146,22 @@ void loop() {
   // Reads IMU data and assigns them to corresponding variables
   read_IMU();
 
-  
+  /*
   // 10 iterations for madgwick
   for (int i = 0; i < n_filter_iter; i++) {
     Madgwick(Gx, Gy, Gz, Ax, Ay, Az, Mx, My, Mz, 0.005f);
   }
-  
+  */
+	
   #ifdef IMU_TEST
+    /*
     Serial.print(yaw_angle);
     Serial.print(",");
     Serial.print(pitch_angle);
     Serial.print(",");
-    Serial.print(roll_angle);
+    Serial.println(roll_angle);
+    */
+    
   #endif
 
 }
@@ -198,10 +203,10 @@ void IMU_init() {
     
   // Selecting to use madgwick filter with 10 iterations for convergence
   // Tentative depending on independent implementation of madgwick
-  /*
+  
   mpu.selectFilter(QuatFilterSel::MADGWICK);
   mpu.setFilterIterations(10);
-  */
+  
 
   /*
   // setting calibration parameters for magnetometer
@@ -215,6 +220,7 @@ void IMU_init() {
 }
 
 void read_IMU() {
+  /*
   // functions for getting accelerometer and gyro data does not compensate for bias automatically
   Ax = mpu.getAccX() - mpu.getAccBiasX();
   Ay = mpu.getAccY() - mpu.getAccBiasY();
@@ -227,15 +233,21 @@ void read_IMU() {
   Mx = mpu.getMagX();
   My = mpu.getMagY();
   Mz = mpu.getMagZ();
-
-  /*
+  */
+  
   // Reads sensor data and applies them to variables (not sure if this includes filtering/bias offsetting)
   if (mpu.update()) {
+    #ifdef IMU_TEST
       Serial.print(mpu.getYaw()); Serial.print(",");
       Serial.print(mpu.getPitch()); Serial.print(",");
       Serial.println(mpu.getRoll());
+    #endif
+
+    // stores angles into corresponding variables
+    yaw_angle = mpu.getYaw();
+    pitch_angle = mpu.getPitch();
+    roll_angle = mpu.getRoll();
   }
-  */
 }
 
 void print_calibration() {
