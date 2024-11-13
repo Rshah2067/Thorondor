@@ -11,7 +11,7 @@ IMU_CALIBRATION: Only triggers IMU calibration
 IMU_TEST: Triggers IMU testing
 YAW_TEST: Allows yaw testing
 */
-#define NA 
+#define n 
 
 //Initialize Servos and Motors
 Servo starboardMotor;
@@ -63,9 +63,10 @@ float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta
 //Setting PID Constants
 //P at which the controller just starts to oscillate
 // TODO ADD SOME I
-
-float P = 0.148;
-float I = 0.0f;
+float PIDtimer;
+float error;
+float P = .154;
+float I = .0f;
 float D = 0.0f;
 float PID(float roll,float setpoint);
 void IMU_init();
@@ -113,10 +114,10 @@ void setup() {
       }
     }
   }
-  portMotor.write(25);
-  starboardMotor.write(25);
+  portMotor.write(30);
+  starboardMotor.write(30);
   // Initializing IMU
-  
+  PIDtimer = millis();
   // Enables IMU calibration functionality, stops in an infinite loop
   #ifdef IMU_CALIBRATION
     // IMU Calibration
@@ -178,41 +179,45 @@ void loop() {
     }
   }
   read_IMU();
-  //Run PID and apply corrective motor powers
-  float correction = PID(roll_angle,0);
-  //prevent overflow
-  if (starboardMotor.read()-correction >= 180){
-    starboardMotor.write(180);
+  //Start cycle timer
+  if (millis() - PIDtimer > 50){
+    //Run PID and apply corrective motor powers
+    float correction = PID(roll_angle,0);
+    //prevent overflow
+    if (starboardMotor.read()-correction >= 180){
+      starboardMotor.write(180);
+    }
+    else if (starboardMotor.read()-correction <=0){
+      starboardMotor.write(0);
+    }
+    else{
+      starboardMotor.write(40.0f-correction);
+    }
+    if (portMotor.read()+correction >= 180){
+      portMotor.write(180);
+    }
+    else if (portMotor.read()+correction <= 0){
+      portMotor.write(0);
+    }
+    else{
+      portMotor.write(40.0f+correction);
+    }
+    PIDtimer = millis();
+    Serial.print(roll_angle);
+    Serial.print(" Port ");
+    Serial.print(portMotor.read());
+    Serial.print(" Starboard ");
+    Serial.print(starboardMotor.read());
+    Serial.print(" Correction ");
+    Serial.println(correction);
   }
-  else if (starboardMotor.read()-correction <=0){
-    starboardMotor.write(0);
-  }
-  else{
-    starboardMotor.write(30.0f-correction);
-  }
-  if (portMotor.read()+correction >= 180){
-    portMotor.write(180);
-  }
-  else if (portMotor.read()+correction <= 0){
-    portMotor.write(0);
-  }
-  else{
-    portMotor.write(30.0f+correction);
-  }
-  Serial.print(roll_angle);
-  Serial.print(" Port ");
-  Serial.print(portMotor.read());
-  Serial.print(" Starboard ");
-  Serial.print(starboardMotor.read());
-  Serial.print(" Correction ");
-  Serial.println(correction);
-
+  
 }
 //When I have negative Error that means we are rolled to port (port motor needs more power)
 //When I have positive error that means we are rolled to starboard (starboard motor needs more power) (positive correction should be added to starboard, substracted form port)
-float PID(float roll,float setpoint){
+float PID(float roll,float setpoint,float peror){
   float error = setpoint-roll;
-  float correction = P*error;
+  float correction = P*error + I*error*.050 + D;
   return correction;
 }
 void IMU_init() {
