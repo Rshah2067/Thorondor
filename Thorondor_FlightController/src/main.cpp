@@ -65,9 +65,9 @@ float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta
 // TODO ADD SOME I
 float PIDtimer;
 float error;
-float P = .154;
-float I = .0f;
-float D = 0.0f;
+float P = .225;
+float I = 0.15f;
+float D = 0.15f;
 float PID(float roll,float setpoint);
 void IMU_init();
 void read_IMU();
@@ -96,6 +96,7 @@ void setup() {
   starboardServo.write(20);
   portServo.attach(7);
   portServo.write(160);
+  
   IMU_init();
   delay(300);
   Serial.println("Type 'go' to start.");
@@ -114,8 +115,8 @@ void setup() {
       }
     }
   }
-  portMotor.write(30);
-  starboardMotor.write(30);
+  portMotor.write(40);
+  starboardMotor.write(40);
   // Initializing IMU
   PIDtimer = millis();
   // Enables IMU calibration functionality, stops in an infinite loop
@@ -215,9 +216,10 @@ void loop() {
 }
 //When I have negative Error that means we are rolled to port (port motor needs more power)
 //When I have positive error that means we are rolled to starboard (starboard motor needs more power) (positive correction should be added to starboard, substracted form port)
-float PID(float roll,float setpoint,float peror){
-  float error = setpoint-roll;
-  float correction = P*error + I*error*.050 + D;
+float PID(float roll,float setpoint){
+  float previousError = error;
+  error = setpoint-roll;
+  float correction = P*error + I*error*.050 + D*(error-previousError)/.05;
   return correction;
 }
 void IMU_init() {
