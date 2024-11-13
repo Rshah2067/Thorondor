@@ -60,7 +60,14 @@ float q3 = 0.0f;
 float GyroMeasError = PI * (40.0f / 180.0f); // gyroscope measurement error in rads/s (start at 40 deg/s)
 float GyroMeasDrift = PI * (0.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
 float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta
+//Setting PID Constants
+//P at which the controller just starts to oscillate
+// TODO ADD SOME I
 
+float P = 0.148;
+float I = 0.0f;
+float D = 0.0f;
+float PID(float roll,float setpoint);
 void IMU_init();
 void read_IMU();
 void print_calibration();
@@ -76,41 +83,39 @@ void setup() {
   Wire.begin();
   delay(5000);
   
-  // Enables yaw test functionality
-  #ifdef YAW_TEST
-    while(!Serial){
-      
-    }
-    starboardMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
-    portMotor.attach(3,1000,2000);
-    starboardMotor.write(0);
-    portMotor.write(0);
-    starboardServo.attach(4);
-    starboardServo.write(20);
-    portServo.attach(5);
-    portServo.write(160);
-    Serial.println("Type 'go' to start.");
+// Enables yaw test functionality
+  while(!Serial){
     
-    while (true) {
-      if (Serial.available() > 0) {        // Check if data is available to read
-        String input = Serial.readString(); // Read the input as a string
-        
-        input.trim();                       // Remove any leading/trailing whitespace
-        
-        if (input.equalsIgnoreCase("go")) { // Check if the input matches "go" (case-insensitive)
-          Serial.println("Starting program...");
-          break;                            // Exit the loop and continue the program
-        } else {
-          Serial.println("Invalid input. Type 'go' to start."); // Prompt again
-        }
+  }
+  starboardMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
+  portMotor.attach(3,1000,2000);
+  starboardMotor.write(0);
+  portMotor.write(0);
+  starboardServo.attach(6);
+  starboardServo.write(20);
+  portServo.attach(7);
+  portServo.write(160);
+  IMU_init();
+  delay(300);
+  Serial.println("Type 'go' to start.");
+  
+  while (true) {
+    if (Serial.available() > 0) {        // Check if data is available to read
+      String input = Serial.readString(); // Read the input as a string
+      
+      input.trim();                       // Remove any leading/trailing whitespace
+      
+      if (input.equalsIgnoreCase("go")) { // Check if the input matches "go" (case-insensitive)
+        Serial.println("Starting program...");
+        break;                            // Exit the loop and continue the program
+      } else {
+        Serial.println("Invalid input. Type 'go' to start."); // Prompt again
       }
     }
-    //portServo.write(135);
-    delay(300);
-  #endif
-
+  }
+  portMotor.write(25);
+  starboardMotor.write(25);
   // Initializing IMU
-  IMU_init();
   
   // Enables IMU calibration functionality, stops in an infinite loop
   #ifdef IMU_CALIBRATION
@@ -135,37 +140,81 @@ void setup() {
 }
 
 void loop() {
-  #ifdef YAW_TEST
-    Serial.println("running");
-    starboardServo.write(50);
-    portServo.write(170);
-    portMotor.write(50);
-    starboardMotor.write(50);
-  #endif
+  //Read from Serial to see if we have a new PID constant
+  // Reads IMU data and as signs them to corresponding variables
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');  // Read the serial input until newline character
 
-  // Reads IMU data and assigns them to corresponding variables
-  read_IMU();
+    // Ensure input is long enough to have a letter followed by a number
+    if (input.length() > 1) {
+      char id = input.charAt(0);  // Get the first character (P, I, or D)
+      float value = input.substring(1).toFloat(); // Convert the remaining part to a float
 
-  /*
-  // 10 iterations for madgwick
-  for (int i = 0; i < n_filter_iter; i++) {
-    Madgwick(Gx, Gy, Gz, Ax, Ay, Az, Mx, My, Mz, 0.005f);
+      switch (id) {
+        case 'P':
+          P = value;
+          Serial.print("Kp updated to: ");
+          Serial.println(P);
+          break;
+
+        case 'I':
+          I = value;
+          Serial.print("Ki updated to: ");
+          Serial.println(I);
+          break;
+
+        case 'D':
+          D = value;
+          Serial.print("Kd updated to: ");
+          Serial.println(D);
+          break;
+
+        default:
+          Serial.println("Invalid input. Use P, I, or D followed by a number.");
+          break;
+      }
+    } else {
+      Serial.println("Invalid input format. Use P, I, or D followed by a number.");
+    }
   }
-  */
-	
-  #ifdef IMU_TEST
-    /*
-    Serial.print(yaw_angle);
-    Serial.print(",");
-    Serial.print(pitch_angle);
-    Serial.print(",");
-    Serial.println(roll_angle);
-    */
-    
-  #endif
+  read_IMU();
+  //Run PID and apply corrective motor powers
+  float correction = PID(roll_angle,0);
+  //prevent overflow
+  if (starboardMotor.read()-correction >= 180){
+    starboardMotor.write(180);
+  }
+  else if (starboardMotor.read()-correction <=0){
+    starboardMotor.write(0);
+  }
+  else{
+    starboardMotor.write(30.0f-correction);
+  }
+  if (portMotor.read()+correction >= 180){
+    portMotor.write(180);
+  }
+  else if (portMotor.read()+correction <= 0){
+    portMotor.write(0);
+  }
+  else{
+    portMotor.write(30.0f+correction);
+  }
+  Serial.print(roll_angle);
+  Serial.print(" Port ");
+  Serial.print(portMotor.read());
+  Serial.print(" Starboard ");
+  Serial.print(starboardMotor.read());
+  Serial.print(" Correction ");
+  Serial.println(correction);
 
 }
-
+//When I have negative Error that means we are rolled to port (port motor needs more power)
+//When I have positive error that means we are rolled to starboard (starboard motor needs more power) (positive correction should be added to starboard, substracted form port)
+float PID(float roll,float setpoint){
+  float error = setpoint-roll;
+  float correction = P*error;
+  return correction;
+}
 void IMU_init() {
   /* 
   Various IMU Settings:
