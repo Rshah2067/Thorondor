@@ -13,6 +13,10 @@ YAW_TEST: Allows yaw testing
 */
 #define n 
 
+// OWN_FUNC: using own IMU update functions
+// LIB_FUNC: using library IMU update functions
+#define OWN_FUNC
+
 //Initialize Servos and Motors
 Servo starboardMotor;
 Servo starboardServo;
@@ -259,51 +263,44 @@ void IMU_init() {
     
   // Selecting to use madgwick filter with 10 iterations for convergence
   // Tentative depending on independent implementation of madgwick
-  
-  mpu.selectFilter(QuatFilterSel::MADGWICK);
-  mpu.setFilterIterations(10);
-  
-
-  /*
-  // setting calibration parameters for magnetometer
-  mpu.setMagBias(MagErrorX, MagErrorY, MagErrorZ);
-  mpu.setMagScale(MagScaleX, MagScaleY, MagScaleZ);
-  
-  mpu.setAccBias(AccErrorX, AccErrorY, AccErrorZ);
-  
-  mpu.setGyroBias(GyroErrorX, GyroErrorY, GyroErrorZ);
-  */
+  #ifdef LIB_FUNC
+    mpu.selectFilter(QuatFilterSel::MADGWICK);
+    mpu.setFilterIterations(10);
+  #endif
 }
 
 void read_IMU() {
-  /*
-  // functions for getting accelerometer and gyro data does not compensate for bias automatically
-  Ax = mpu.getAccX() - mpu.getAccBiasX();
-  Ay = mpu.getAccY() - mpu.getAccBiasY();
-  Az = mpu.getAccZ() - mpu.getAccBiasZ();
-  Gx = mpu.getGyroX() - mpu.getGyroBiasX();
-  Gy = mpu.getGyroY() - mpu.getGyroBiasY();
-  Gz = mpu.getGyroZ() - mpu.getGyroBiasZ();
+  #ifdef OWN_FUNC
+    // functions for getting accelerometer and gyro data does not compensate for bias automatically
+    Ax = mpu.getAccX() - mpu.getAccBiasX();
+    Ay = mpu.getAccY() - mpu.getAccBiasY();
+    Az = mpu.getAccZ() - mpu.getAccBiasZ();
+    Gx = mpu.getGyroX() - mpu.getGyroBiasX();
+    Gy = mpu.getGyroY() - mpu.getGyroBiasY();
+    Gz = mpu.getGyroZ() - mpu.getGyroBiasZ();
 
-  // functions getting magnetometer data automatically scales and compensates for bias
-  Mx = mpu.getMagX();
-  My = mpu.getMagY();
-  Mz = mpu.getMagZ();
-  */
+    // functions getting magnetometer data automatically scales and compensates for bias
+    Mx = mpu.getMagX();
+    My = mpu.getMagY();
+    Mz = mpu.getMagZ();
+  #endif
   
   // Reads sensor data and applies them to variables (not sure if this includes filtering/bias offsetting)
-  if (mpu.update()) {
-    #ifdef IMU_TEST
-      Serial.print(mpu.getYaw()); Serial.print(",");
-      Serial.print(mpu.getPitch()); Serial.print(",");
-      Serial.println(mpu.getRoll());
-    #endif
+  #ifdef LIB_FUNC
+    if (mpu.update()) {
+      #ifdef IMU_TEST
+        Serial.print(mpu.getYaw()); Serial.print(",");
+        Serial.print(mpu.getPitch()); Serial.print(",");
+        Serial.println(mpu.getRoll());
+      #endif
 
-    // stores angles into corresponding variables
-    yaw_angle = mpu.getYaw();
-    pitch_angle = mpu.getPitch();
-    roll_angle = mpu.getRoll();
-  }
+      // stores angles into corresponding variables
+      yaw_angle = mpu.getYaw();
+      pitch_angle = mpu.getPitch();
+      roll_angle = mpu.getRoll();
+    }
+  #endif
+  
 }
 
 void print_calibration() {
