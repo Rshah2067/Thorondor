@@ -11,13 +11,13 @@ IMU_CALIBRATION: Only triggers IMU calibration
 IMU_TEST: Triggers IMU testing
 YAW_TEST: Allows yaw testing
 */
-#define ROLL_TEST
+#define PITCH_TEST
 
 /*
 OWN_FUNC: using own IMU udpate functions
 LIB_FUNC: using library IMU update functions
 */
-#define OWN_FUNC
+#define LIB_FUNC
 
 //Initialize Servos and Motors
 Servo starboardMotor;
@@ -75,9 +75,9 @@ float P_roll = 0.3f;
 float I_roll = 0.025f;
 float D_roll = 0.125f;
 
-float P_pitch;
-float I_pitch;
-float D_pitch;
+float P_pitch = 0.4f;
+float I_pitch = 0.0f;
+float D_pitch = 0.0f;
 
 // Defining functions
 float PID(float current_state,float desired_state, float P, float I, float D, float dt);
@@ -105,10 +105,10 @@ void setup() {
   portMotor.attach(3,1000,2000);
   starboardMotor.write(0);
   portMotor.write(0);
-  starboardServo.attach(6);
-  starboardServo.write(20);
+  starboardServo.attach(8);
+  starboardServo.write(30);
   portServo.attach(7);
-  portServo.write(160);
+  portServo.write(150);
   
   IMU_init();
   delay(300);
@@ -128,10 +128,14 @@ void setup() {
       }
     }
   }
+
+  // Setting base speed value to motors
   portMotor.write(40);
   starboardMotor.write(40);
+
   // Initializing IMU
   PIDtimer = millis();
+
   // Enables IMU calibration functionality, stops in an infinite loop
   #ifdef IMU_CALIBRATION
     // IMU Calibration
@@ -212,10 +216,9 @@ void loop() {
   #ifdef ROLL_TEST
     //Start cycle timer, 20Hz
     if (millis() - PIDtimer > 10){
-      
       //Run PID and apply corrective motor powers
       float correction = PID(roll_angle, 0, P_roll, I_roll, D_roll, 0.01f);
-      //prevent overflow
+      //prevent motor overspeed
       if (starboardMotor.read() - correction >= 180){
         starboardMotor.write(180);
       }
@@ -246,8 +249,40 @@ void loop() {
   #endif
 
   #ifdef PITCH_TEST
-  #endif
-  
+    if (millis() - PIDtimer > 10) {
+      //Run PID and apply corrective motor powers
+      float correction = PID(pitch_angle, 0, P_pitch, I_pitch, D_pitch, 0.01f);
+      //prevent overturning servos
+      if (starboardServo.read() - correction >= 60){
+        starboardServo.write(30);
+      }
+      else if (starboardServo.read() - correction <= 10){
+        starboardServo.write(10);
+      }
+      else{
+        starboardServo.write(20 - correction);
+      }
+      if (portServo.read() + correction >= 180){
+        portServo.write(180);
+      }
+      else if (portServo.read() + correction <= 140){
+        portServo.write(140);
+      }
+      else{
+        portServo.write(160.0 + correction);
+      }
+
+      PIDtimer = millis();
+      Serial.print(roll_angle);
+      Serial.print(" Port ");
+      Serial.print(portServo.read());
+      Serial.print(" Starboard ");
+      Serial.print(starboardServo.read());
+      Serial.print(" Correction ");
+      Serial.println(correction);
+    }
+
+  #endif 
 }
 
 //When I have negative Error that means we are rolled to port (port motor needs more power)
