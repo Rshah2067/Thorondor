@@ -66,9 +66,9 @@ float error;
 float Rp = .225;
 float Ri = 0.15f;
 float Rd = 0.15f;
-float Pp = 4.0f;
+float Pp = 4.5f;
 float Pi = 0.0f;
-float Pd = 0.0f;
+float Pd = 4.0f;
 float PID(float angle,float setpoint,float P,float I, float D);
 void IMU_init();
 void read_IMU();
@@ -189,7 +189,7 @@ void loop() {
       //that means when we get a positive correction we want to rotors to tilt back
       float pitch_correction = PID(pitch_angle,0,Pp,Pd,Pi);
       portServo.write(75+pitch_correction);
-      starboardServo.write(135-pitch_correction); 
+      starboardServo.write(115-pitch_correction); 
       Serial.print(pitch_angle);
       Serial.print(" Port ");
       Serial.print(portServo.read());
