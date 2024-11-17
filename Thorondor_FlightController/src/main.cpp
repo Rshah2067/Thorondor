@@ -61,14 +61,15 @@ float GyroMeasError = PI * (40.0f / 180.0f); // gyroscope measurement error in r
 float GyroMeasDrift = PI * (0.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
 float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta
 //Setting PID Constants
-//P at which the controller just starts to oscillate
-// TODO ADD SOME I
 float PIDtimer;
 float error;
-float P = .225;
-float I = 0.15f;
-float D = 0.15f;
-float PID(float roll,float setpoint);
+float Rp = .225;
+float Ri = 0.15f;
+float Rd = 0.15f;
+float Pp = 4.0f;
+float Pi = 0.0f;
+float Pd = 0.0f;
+float PID(float angle,float setpoint,float P,float I, float D);
 void IMU_init();
 void read_IMU();
 void print_calibration();
@@ -76,7 +77,8 @@ float invSqrt(float x);
 void Madgwick(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz, float invSampleFreq);
 
 //NOTES:
-//Starboard servo nuetral position is 20, max back is 10
+//Starboard servo nuetral position is 135, max back is 180
+//Port servo nuetral is 75 max back is 0
 //Servo Gear ratio is 2:1
 void setup() {
   //Start Serial
@@ -88,14 +90,14 @@ void setup() {
   while(!Serial){
     
   }
-  starboardMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
-  portMotor.attach(3,1000,2000);
+  portMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
+  starboardMotor.attach(3,1000,2000);
   starboardMotor.write(0);
   portMotor.write(0);
-  starboardServo.attach(6);
-  starboardServo.write(20);
-  portServo.attach(7);
-  portServo.write(160);
+  portServo.attach(9);
+  portServo.write(75);
+  starboardServo.attach(7);
+  starboardServo.write(115);
   
   IMU_init();
   delay(300);
@@ -144,81 +146,95 @@ void setup() {
 void loop() {
   //Read from Serial to see if we have a new PID constant
   // Reads IMU data and as signs them to corresponding variables
-  if (Serial.available() > 0) {
-    String input = Serial.readStringUntil('\n');  // Read the serial input until newline character
+  // if (Serial.available() > 0) {
+  //   String input = Serial.readStringUntil('\n');  // Read the serial input until newline character
 
-    // Ensure input is long enough to have a letter followed by a number
-    if (input.length() > 1) {
-      char id = input.charAt(0);  // Get the first character (P, I, or D)
-      float value = input.substring(1).toFloat(); // Convert the remaining part to a float
+  //   // Ensure input is long enough to have a letter followed by a number
+  //   if (input.length() > 1) {
+  //     char id = input.charAt(0);  // Get the first character (P, I, or D)
+  //     float value = input.substring(1).toFloat(); // Convert the remaining part to a float
 
-      switch (id) {
-        case 'P':
-          P = value;
-          Serial.print("Kp updated to: ");
-          Serial.println(P);
-          break;
+  //     switch (id) {
+  //       case 'P':
+  //         P = value;
+  //         Serial.print("Kp updated to: ");
+  //         Serial.println(P);
+  //         break;
 
-        case 'I':
-          I = value;
-          Serial.print("Ki updated to: ");
-          Serial.println(I);
-          break;
+  //       case 'I':
+  //         I = value;
+  //         Serial.print("Ki updated to: ");
+  //         Serial.println(I);
+  //         break;
 
-        case 'D':
-          D = value;
-          Serial.print("Kd updated to: ");
-          Serial.println(D);
-          break;
+  //       case 'D':
+  //         D = value;
+  //         Serial.print("Kd updated to: ");
+  //         Serial.println(D);
+  //         break;
 
-        default:
-          Serial.println("Invalid input. Use P, I, or D followed by a number.");
-          break;
-      }
-    } else {
-      Serial.println("Invalid input format. Use P, I, or D followed by a number.");
-    }
-  }
+  //       default:
+  //         Serial.println("Invalid input. Use P, I, or D followed by a number.");
+  //         break;
+  //     }
+  //   } else {
+  //     Serial.println("Invalid input format. Use P, I, or D followed by a number.");
+  //   }
+  // }
   read_IMU();
   //Start cycle timer
+
   if (millis() - PIDtimer > 50){
-    //Run PID and apply corrective motor powers
-    float correction = PID(roll_angle,0);
-    //prevent overflow
-    if (starboardMotor.read()-correction >= 180){
-      starboardMotor.write(180);
-    }
-    else if (starboardMotor.read()-correction <=0){
-      starboardMotor.write(0);
-    }
-    else{
-      starboardMotor.write(40.0f-correction);
-    }
-    if (portMotor.read()+correction >= 180){
-      portMotor.write(180);
-    }
-    else if (portMotor.read()+correction <= 0){
-      portMotor.write(0);
-    }
-    else{
-      portMotor.write(40.0f+correction);
-    }
-    PIDtimer = millis();
-    Serial.print(roll_angle);
-    Serial.print(" Port ");
-    Serial.print(portMotor.read());
-    Serial.print(" Starboard ");
-    Serial.print(starboardMotor.read());
-    Serial.print(" Correction ");
-    Serial.println(correction);
+      // a positive pitch corresponds to the aircraft pitching "forward"
+      //that means when we get a positive correction we want to rotors to tilt back
+      float pitch_correction = PID(pitch_angle,0,Pp,Pd,Pi);
+      portServo.write(75+pitch_correction);
+      starboardServo.write(135-pitch_correction); 
+      Serial.print(pitch_angle);
+      Serial.print(" Port ");
+      Serial.print(portServo.read());
+      Serial.print(" Starboard ");
+      Serial.print(starboardServo.read());
+      Serial.print(" Correction ");
+      Serial.println(pitch_correction);
   }
+  //Run PID and apply corrective motor powers
+  //   float roll_correction = PID(roll_angle,0,RP,RI,RD);
+  //   //prevent overflow
+  //   if (starboardMotor.read()-roll_correction >= 180){
+  //     starboardMotor.write(180);
+  //   }
+  //   else if (starboardMotor.read()-roll_correction <=0){
+  //     starboardMotor.write(0);
+  //   }
+  //   else{
+  //     starboardMotor.write(40.0f-roll_correction);
+  //   }
+  //   if (portMotor.read()+roll_correction >= 180){
+  //     portMotor.write(180);
+  //   }
+  //   else if (portMotor.read()+roll_correction <= 0){
+  //     portMotor.write(0);
+  //   }
+  //   else{
+  //     portMotor.write(40.0f+roll_correction);
+  //   }
+  //   PIDtimer = millis();
+  //   Serial.print(roll_angle);
+  //   Serial.print(" Port ");
+  //   Serial.print(portMotor.read());
+  //   Serial.print(" Starboard ");
+  //   Serial.print(starboardMotor.read());
+  //   Serial.print(" Correction ");
+  //   Serial.println(roll_correction);
+  // }
   
 }
 //When I have negative Error that means we are rolled to port (port motor needs more power)
 //When I have positive error that means we are rolled to starboard (starboard motor needs more power) (positive correction should be added to starboard, substracted form port)
-float PID(float roll,float setpoint){
+float PID(float angle,float setpoint,float P, float I, float D){
   float previousError = error;
-  error = setpoint-roll;
+  error = setpoint-angle;
   float correction = P*error + I*error*.050 + D*(error-previousError)/.05;
   return correction;
 }
