@@ -11,13 +11,13 @@ IMU_CALIBRATION: Only triggers IMU calibration
 IMU_TEST: Triggers IMU testing
 YAW_TEST: Allows yaw testing
 */
-#define PITCH_TEST
+#define ROLL_TEST
 
 /*
 OWN_FUNC: using own IMU udpate functions
 LIB_FUNC: using library IMU update functions
 */
-#define LIB_FUNC
+#define OWN_FUNC
 
 //Initialize Servos and Motors
 Servo starboardMotor;
@@ -102,9 +102,9 @@ void setup() {
   starboardMotor.write(0);
   portMotor.write(0);
   portServo.attach(9);
-  portServo.write(75);
+  portServo.write(65);
   starboardServo.attach(7);
-  starboardServo.write(115);
+  starboardServo.write(65);
   
   IMU_init();
   delay(300);
@@ -193,54 +193,55 @@ void loop() {
   //   }
   // }
   read_IMU();
+  update_state();
+
   //Start cycle timer
 
-  if (millis() - PIDtimer > 50){
-      // a positive pitch corresponds to the aircraft pitching "forward"
-      //that means when we get a positive correction we want to rotors to tilt back
-      float pitch_correction = PID(pitch_angle,0,Pp,Pd,Pi);
-      portServo.write(75+pitch_correction);
-      starboardServo.write(115-pitch_correction); 
-      Serial.print(pitch_angle);
-      Serial.print(" Port ");
-      Serial.print(portServo.read());
-      Serial.print(" Starboard ");
-      Serial.print(starboardServo.read());
-      Serial.print(" Correction ");
-      Serial.println(pitch_correction);
-  }
-  //Run PID and apply corrective motor powers
-  //   float roll_correction = PID(roll_angle,0,RP,RI,RD);
-  //   //prevent overflow
-  //   if (starboardMotor.read()-roll_correction >= 180){
-  //     starboardMotor.write(180);
-  //   }
-  //   else if (starboardMotor.read()-roll_correction <=0){
-  //     starboardMotor.write(0);
-  //   }
-  //   else{
-  //     starboardMotor.write(40.0f-roll_correction);
-  //   }
-  //   if (portMotor.read()+roll_correction >= 180){
-  //     portMotor.write(180);
-  //   }
-  //   else if (portMotor.read()+roll_correction <= 0){
-  //     portMotor.write(0);
-  //   }
-  //   else{
-  //     portMotor.write(40.0f+roll_correction);
-  //   }
-  //   PIDtimer = millis();
-  //   Serial.print(roll_angle);
-  //   Serial.print(" Port ");
-  //   Serial.print(portMotor.read());
-  //   Serial.print(" Starboard ");
-  //   Serial.print(starboardMotor.read());
-  //   Serial.print(" Correction ");
-  //   Serial.println(roll_correction);
+  // if (millis() - PIDtimer > 50){
+  //     // a positive pitch corresponds to the aircraft pitching "forward"
+  //     //that means when we get a positive correction we want to rotors to tilt back
+  //     float pitch_correction = PID(pitch_angle,0,Pp,Pd,Pi);
+  //     portServo.write(75+pitch_correction);
+  //     starboardServo.write(115-pitch_correction); 
+  //     Serial.print(pitch_angle);
+  //     Serial.print(" Port ");
+  //     Serial.print(portServo.read());
+  //     Serial.print(" Starboard ");
+  //     Serial.print(starboardServo.read());
+  //     Serial.print(" Correction ");
+  //     Serial.println(pitch_correction);
   // }
-  
-}
+  //Run PID and apply corrective motor powers
+    float roll_correction = PID(roll_angle,0,Rp,Ri,Rd);
+    //prevent overflow
+    if (starboardMotor.read()-roll_correction >= 180){
+      starboardMotor.write(180);
+    }
+    else if (starboardMotor.read()-roll_correction <=0){
+      starboardMotor.write(0);
+    }
+    else{
+      starboardMotor.write(40.0f-roll_correction);
+    }
+    if (portMotor.read()+roll_correction >= 180){
+      portMotor.write(180);
+    }
+    else if (portMotor.read()+roll_correction <= 0){
+      portMotor.write(0);
+    }
+    else{
+      portMotor.write(40.0f+roll_correction);
+    }
+    PIDtimer = millis();
+    Serial.print(roll_angle);
+    Serial.print(" Port ");
+    Serial.print(portMotor.read());
+    Serial.print(" Starboard ");
+    Serial.print(starboardMotor.read());
+    Serial.print(" Correction ");
+    Serial.println(roll_correction);
+  }
+
 //When I have negative Error that means we are rolled to port (port motor needs more power)
 //When I have positive error that means we are rolled to starboard (starboard motor needs more power) (positive correction should be added to starboard, substracted form port)
 float PID(float angle,float setpoint,float P, float I, float D){
