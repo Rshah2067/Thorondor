@@ -59,29 +59,32 @@ float yaw_angle;
 // Defining a vector to hold quaternion
 float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  
 
-// Setting timestep for Madgwick
-float dT = 0.005;
-
-// Setting beta value based off of these parameters
+// Setting Madgwick Filter parameters
 float GyroMeasError = PI * (40.0f / 180.0f); // gyroscope measurement error in rads/s (start at 40 deg/s)
 float GyroMeasDrift = PI * (0.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
-float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta
-//Setting PID Constants
+float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta value
+float dT = 0.005; // Setting timestep for Madgwick (seconds)
+
+// Setting PID Constants
 float PIDtimer;
-float error;
+float pitch_error;
+float roll_error;
 float Rp = .225;
-float Ri = 0.15f;
+float Ri = 0.0f;
 float Rd = 0.15f;
-float Pp = 2.0f;
+float Pp = 0.5f;
 float Pi = 0.0f;
-float Pd = 4.0f;
-float PID(float angle,float setpoint,float P,float I, float D);
+float Pd = 1.0f;
+
+// Declaring functions
+float PID(float angle,float setpoint,float P,float I, float D, float error);
 void IMU_init();
 void read_IMU();
+void update_state();
 void print_calibration();
 float invSqrt(float x);
 void madgwick(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz, float* q);
-void update_state();
+float degree2ms(float degrees);
 
 //NOTES:
 //Starboard servo nuetral position is 135, max back is 180
@@ -157,6 +160,7 @@ void setup() {
 void loop() {
   //Read from Serial to see if we have a new PID constant
   // Reads IMU data and as signs them to corresponding variables
+
   // if (Serial.available() > 0) {
   //   String input = Serial.readStringUntil('\n');  // Read the serial input until newline character
 
@@ -192,45 +196,47 @@ void loop() {
   //     Serial.println("Invalid input format. Use P, I, or D followed by a number.");
   //   }
   // }
+
   read_IMU();
   update_state();
 
   //Start cycle timer
+  
+  if (millis() - PIDtimer > 50){
+    // a positive pitch corresponds to the aircraft pitching "forward"
+    //that means when we get a positive correction we want to rotors to tilt back
+    float pitch_correction = PID(pitch_angle, 0, Pp, Pd, Pi, pitch_error);
+    portServo.writeMicroseconds(degree2ms(65.0f + pitch_correction));
+    starboardServo.writeMicroseconds(degree2ms(65.0f - pitch_correction)); 
+    /*
+    Serial.print(pitch_angle);
+    Serial.print(" Port ");
+    Serial.print(portServo.read());
+    Serial.print(" Starboard ");
+    Serial.print(starboardServo.read());
+    Serial.print(" Correction ");
+    Serial.println(pitch_correction);
+    */
 
-  // if (millis() - PIDtimer > 50){
-  //     // a positive pitch corresponds to the aircraft pitching "forward"
-  //     //that means when we get a positive correction we want to rotors to tilt back
-  //     float pitch_correction = PID(pitch_angle,0,Pp,Pd,Pi);
-  //     portServo.write(75+pitch_correction);
-  //     starboardServo.write(115-pitch_correction); 
-  //     Serial.print(pitch_angle);
-  //     Serial.print(" Port ");
-  //     Serial.print(portServo.read());
-  //     Serial.print(" Starboard ");
-  //     Serial.print(starboardServo.read());
-  //     Serial.print(" Correction ");
-  //     Serial.println(pitch_correction);
-  // }
-  //Run PID and apply corrective motor powers
-    float roll_correction = PID(roll_angle,0,Rp,Ri,Rd);
+    float roll_correction = PID(roll_angle, 0, Rp, Ri, Rd, roll_error);
     //prevent overflow
-    if (starboardMotor.read()-roll_correction >= 180){
-      starboardMotor.write(180);
+    if (starboardMotor.read() - roll_correction >= 180){
+      starboardMotor.writeMicroseconds(degree2ms(180));
     }
-    else if (starboardMotor.read()-roll_correction <=0){
-      starboardMotor.write(0);
-    }
-    else{
-      starboardMotor.write(40.0f-roll_correction);
-    }
-    if (portMotor.read()+roll_correction >= 180){
-      portMotor.write(180);
-    }
-    else if (portMotor.read()+roll_correction <= 0){
-      portMotor.write(0);
+    else if (starboardMotor.read() - roll_correction <=0){
+      starboardMotor.writeMicroseconds(degree2ms(0));
     }
     else{
-      portMotor.write(40.0f+roll_correction);
+      starboardMotor.writeMicroseconds(degree2ms(40.0f - roll_correction));
+    }
+    if (portMotor.read() + roll_correction >= 180){
+      portMotor.writeMicroseconds(degree2ms(180));
+    }
+    else if (portMotor.read() + roll_correction <= 0){
+      portMotor.writeMicroseconds(degree2ms(0));
+    }
+    else{
+      portMotor.writeMicroseconds(degree2ms(40.0f + roll_correction));
     }
     PIDtimer = millis();
     Serial.print(roll_angle);
@@ -241,12 +247,14 @@ void loop() {
     Serial.print(" Correction ");
     Serial.println(roll_correction);
   }
+}
+    
 
 //When I have negative Error that means we are rolled to port (port motor needs more power)
 //When I have positive error that means we are rolled to starboard (starboard motor needs more power) (positive correction should be added to starboard, substracted form port)
-float PID(float angle,float setpoint,float P, float I, float D){
+float PID(float angle,float setpoint,float P, float I, float D, float error){
   float previousError = error;
-  error = setpoint-angle;
+  error = setpoint - angle;
   float correction = P * error + I * error * 0.05f + D * (error-previousError) / 0.05f;
   return correction;
 }
@@ -550,4 +558,8 @@ void madgwick(float ax, float ay, float az, float gx, float gy, float gz, float 
   q[1] = q1;
   q[2] = q2;
   q[3] = q3;
+}
+
+float degree2ms(float degrees) {
+  return 1000.0 + degrees * 50.0/9.0;
 }
