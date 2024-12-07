@@ -11,13 +11,20 @@ IMU_CALIBRATION: Only triggers IMU calibration
 IMU_TEST: Triggers IMU testing
 YAW_TEST: Allows yaw testing
 */
-#define ROLL_TEST
+#define NONE
 
 /*
 OWN_FUNC: using own IMU udpate functions
 LIB_FUNC: using library IMU update functions
 */
 #define OWN_FUNC
+
+
+//variables for reading Radio Signal
+unsigned long int a, b, c;
+//specifing arrays and variables to store values 
+int x[15], ch1[15], ch[9], i;
+
 
 //Initialize Servos and Motors
 Servo starboardMotor;
@@ -56,8 +63,11 @@ float pitch_angle;
 float roll_angle;
 float yaw_angle;
 
+// Defining desired controller values
+float desired_throttle;
+
 // Defining a vector to hold quaternion
-float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  
+float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
 
 // Setting Madgwick Filter parameters
 float GyroMeasError = PI * (40.0f / 180.0f); // gyroscope measurement error in rads/s (start at 40 deg/s)
@@ -69,15 +79,16 @@ float dT = 0.005; // Setting timestep for Madgwick (seconds)
 float PIDtimer;
 float pitch_error;
 float roll_error;
-float Rp = .225;
+float Rp = 0.2f;
 float Ri = 0.0f;
-float Rd = 0.15f;
+float Rd = 0.0f;
 float Pp = 0.5f;
 float Pi = 0.0f;
-float Pd = 1.0f;
+float Pd = 0.0f;
 
 // Declaring functions
-float PID(float angle,float setpoint,float P,float I, float D, float error);
+float pitch_PID(float angle,float setpoint,float P,float I, float D);
+float roll_PID(float angle,float setpoint,float P,float I, float Ds);
 void IMU_init();
 void read_IMU();
 void update_state();
@@ -85,6 +96,8 @@ void print_calibration();
 float invSqrt(float x);
 void madgwick(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz, float* q);
 float degree2ms(float degrees);
+void read_me();
+void read_rc();
 
 //NOTES:
 //Starboard servo nuetral position is 135, max back is 180
@@ -100,6 +113,7 @@ void setup() {
   while(!Serial){
     
   }
+
   portMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
   starboardMotor.attach(3,1000,2000);
   starboardMotor.write(0);
@@ -109,24 +123,12 @@ void setup() {
   starboardServo.attach(7);
   starboardServo.write(65);
   
+  // enabling interrupt at pin 28
+  pinMode(28, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(28), read_me, FALLING);
+
   IMU_init();
   delay(300);
-  Serial.println("Type 'go' to start.");
-  
-  while (true) {
-    if (Serial.available() > 0) {        // Check if data is available to read
-      String input = Serial.readString(); // Read the input as a string
-      
-      input.trim();                       // Remove any leading/trailing whitespace
-      
-      if (input.equalsIgnoreCase("go")) { // Check if the input matches "go" (case-insensitive)
-        Serial.println("Starting program...");
-        break;                            // Exit the loop and continue the program
-      } else {
-        Serial.println("Invalid input. Type 'go' to start."); // Prompt again
-      }
-    }
-  }
 
   // Setting base speed value to motors
   portMotor.write(40);
@@ -158,54 +160,19 @@ void setup() {
 }
 
 void loop() {
-  //Read from Serial to see if we have a new PID constant
-  // Reads IMU data and as signs them to corresponding variables
+  // Main flight controller loop
 
-  // if (Serial.available() > 0) {
-  //   String input = Serial.readStringUntil('\n');  // Read the serial input until newline character
-
-  //   // Ensure input is long enough to have a letter followed by a number
-  //   if (input.length() > 1) {
-  //     char id = input.charAt(0);  // Get the first character (P, I, or D)
-  //     float value = input.substring(1).toFloat(); // Convert the remaining part to a float
-
-  //     switch (id) {
-  //       case 'P':
-  //         P = value;
-  //         Serial.print("Kp updated to: ");
-  //         Serial.println(P);
-  //         break;
-
-  //       case 'I':
-  //         I = value;
-  //         Serial.print("Ki updated to: ");
-  //         Serial.println(I);
-  //         break;
-
-  //       case 'D':
-  //         D = value;
-  //         Serial.print("Kd updated to: ");
-  //         Serial.println(D);
-  //         break;
-
-  //       default:
-  //         Serial.println("Invalid input. Use P, I, or D followed by a number.");
-  //         break;
-  //     }
-  //   } else {
-  //     Serial.println("Invalid input format. Use P, I, or D followed by a number.");
-  //   }
-  // }
-
+  // Get IMU data and process it to update orientation
   read_IMU();
   update_state();
 
-  //Start cycle timer
-  
+  // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
+  desired_throttle = ch[3] * 0.18;
+
+  //Start PID cycle timer
   if (millis() - PIDtimer > 50){
-    // a positive pitch corresponds to the aircraft pitching "forward"
-    //that means when we get a positive correction we want to rotors to tilt back
-    float pitch_correction = PID(pitch_angle, 0, Pp, Pd, Pi, pitch_error);
+    // Calculating pitch correction
+    float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
     portServo.writeMicroseconds(degree2ms(65.0f + pitch_correction));
     starboardServo.writeMicroseconds(degree2ms(65.0f - pitch_correction)); 
     /*
@@ -218,8 +185,9 @@ void loop() {
     Serial.println(pitch_correction);
     */
 
-    float roll_correction = PID(roll_angle, 0, Rp, Ri, Rd, roll_error);
-    //prevent overflow
+    // Calculating roll correction
+    float roll_correction = roll_PID(roll_angle, 0, Rp, Ri, Rd);
+    // Prevent overflow if write values are too large or small
     if (starboardMotor.read() - roll_correction >= 180){
       starboardMotor.writeMicroseconds(degree2ms(180));
     }
@@ -227,7 +195,7 @@ void loop() {
       starboardMotor.writeMicroseconds(degree2ms(0));
     }
     else{
-      starboardMotor.writeMicroseconds(degree2ms(40.0f - roll_correction));
+      starboardMotor.writeMicroseconds(degree2ms(desired_throttle - roll_correction));
     }
     if (portMotor.read() + roll_correction >= 180){
       portMotor.writeMicroseconds(degree2ms(180));
@@ -236,9 +204,10 @@ void loop() {
       portMotor.writeMicroseconds(degree2ms(0));
     }
     else{
-      portMotor.writeMicroseconds(degree2ms(40.0f + roll_correction));
+      portMotor.writeMicroseconds(degree2ms(desired_throttle + roll_correction));
     }
     PIDtimer = millis();
+    /*
     Serial.print(roll_angle);
     Serial.print(" Port ");
     Serial.print(portMotor.read());
@@ -246,18 +215,31 @@ void loop() {
     Serial.print(starboardMotor.read());
     Serial.print(" Correction ");
     Serial.println(roll_correction);
+    */
   }
 }
     
 
-//When I have negative Error that means we are rolled to port (port motor needs more power)
-//When I have positive error that means we are rolled to starboard (starboard motor needs more power) (positive correction should be added to starboard, substracted form port)
-float PID(float angle,float setpoint,float P, float I, float D, float error){
-  float previousError = error;
-  error = setpoint - angle;
-  float correction = P * error + I * error * 0.05f + D * (error-previousError) / 0.05f;
+// When there is positive error, aircraft is rolled to port of desired angle (positive correction should be added to the port motor, substracted form starboard)
+// When there is positive error, aircraft is rolled to starboard of desired angle (positive correction should be added to starboard motor, substracted form port)
+float roll_PID(float angle, float setpoint, float P, float I, float D){
+  // Calculates correction signal for roll control
+  float previous_roll_error = roll_error;
+  roll_error = setpoint - angle;
+  float correction = P * roll_error + I * roll_error * 0.05f + D * (roll_error - previous_roll_error) / 0.05f;
   return correction;
 }
+
+// When there is positive error, aircraft is pitched forward of desired angle (servos need to rotate backwards)
+// When there is negative error, aircraft is pitched backwards of desired angle (servo need to rotate forwards)
+float pitch_PID(float angle, float setpoint, float P, float I, float D){
+  // Calculates correction signal for pitch control
+  float previous_pitch_error = pitch_error;
+  pitch_error = setpoint - angle;
+  float correction = P * pitch_error + I * pitch_error * 0.05f + D * (roll_error - previous_pitch_error) / 0.05f;
+  return correction;
+}
+
 
 void IMU_init() {
   /* 
@@ -289,7 +271,7 @@ void IMU_init() {
       }
   }
 
-  // Set sensor bias and scaling accordingly
+  // Set sensor bias and scaling to manually set values based off of calibration
   mpu.setAccBias(AccErrorX, AccErrorY, AccErrorZ);
   mpu.setGyroBias(GyroErrorX, GyroErrorY, GyroErrorZ);
   mpu.setMagBias(MagErrorX, MagErrorY, MagErrorZ);
@@ -444,7 +426,12 @@ void print_calibration() {
 
 float invSqrt(float x) {
   // Fast inverse sqrt algorithm
-  // use either fast inverse sqrt or just regular computation, depending on valuing speed or accuracy
+
+  // Implementation of the famous "fast inverse square root" algorithm, 
+  // which provides an approximation for calculating 1/sqrt(x) more efficiently 
+  // than the standard method. The algorithm uses a bit manipulation trick followed 
+  // by two iterations of Newton's method to refine the approximation.
+
   float halfx = 0.5f * x;
   float y = x;
   long i = *(long*)&y; // trick computer into thinking it's using an integer (EVIL BLACK MAGIC!!!!!!)
@@ -456,7 +443,17 @@ float invSqrt(float x) {
 }
 
 void madgwick(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz, float* q) {
-  // Madgwick filter used for orientation estimation 
+  // Madgwick filter used for orientation estimation
+
+  // This function implements the Madgwick filter algorithm, which is used to 
+  // estimate the orientation of a sensor in 3D space by combining accelerometer, 
+  // gyroscope, and magnetometer data. The filter uses a gradient descent algorithm 
+  // to minimize the error between the estimated orientation and the sensor's readings, 
+  // providing real-time quaternion values for accurate orientation estimation.
+
+  // The filter computes the quaternion values (q0, q1, q2, q3) representing the 
+  // orientation, and updates the sensor's orientation estimate based on the 
+  // input data from the sensors.
 
   // Declaring relevant quaternion and quaternion rate variables
   double q0 = q[0], q1 = q[1], q2 = q[2], q3 = q[3]; // splitting quaternion up into components
@@ -534,7 +531,7 @@ void madgwick(float ax, float ay, float az, float gx, float gy, float gz, float 
   s3 *= recipNorm;
 
   // Apply feedback step
-  // Basically like complimentary filtering
+  // Complimentary filtering between grad descent and gyro results
   qDot1 -= B_madgwick * s0;
   qDot2 -= B_madgwick * s1;
   qDot3 -= B_madgwick * s2;
@@ -561,5 +558,42 @@ void madgwick(float ax, float ay, float az, float gx, float gy, float gz, float 
 }
 
 float degree2ms(float degrees) {
+  // converts degrees to microseconds for Servo.writeMicroseconds()
   return 1000.0 + degrees * 50.0/9.0;
+}
+
+void read_me() {
+    // This code reads values from an RC receiver from the PPM pin (Pin 2 or 3)
+    // It provides channel values from 0 to 1000
+    //    -: ABHILASH :-    //
+
+    a = micros();  // Store the time value 'a' when the pin value falls
+    c = a - b;     // Calculate the time between two peaks
+    b = a; 
+    x[i] = c;      // Store the time difference in the temporary array 'x'
+    i = i + 1;     // Increment the index 'i'
+
+    if (i == 15) {
+        // After 15 readings, copy the values from the temporary array 'x' to 'ch1'
+        for (int j = 0; j < 15; j++) {
+            ch1[j] = x[j];  
+        }
+        i = 0;  // Reset the index 'i'
+    }
+}
+
+void read_rc() {
+    int i, j, k = 0;
+
+    // Loop to find the separation space (10000us) and mark the index 'j'
+    for (k = 14; k > -1; k--) {
+        if (ch1[k] > 5000) {
+            j = k;  // Mark the index where the separation occurs
+        }
+    }
+
+    // Assign values to channels (after separation space) and adjust the values
+    for (i = 1; i <= 8; i++) {
+        ch[i] = (ch1[i + j] - 1000);  // Subtract 1000 to scale the values
+    }
 }
