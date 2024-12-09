@@ -79,16 +79,16 @@ float dT = 0.005; // Setting timestep for Madgwick (seconds)
 float PIDtimer;
 float pitch_error;
 float roll_error;
-float Rp = 0.2f;
+float Rp = 0.005f;
 float Ri = 0.0f;
-float Rd = 0.0f;
-float Pp = 0.5f;
+float Rd = 0.01f;
+float Pp = 0.75f;
 float Pi = 0.0f;
-float Pd = 0.0f;
+float Pd = 0.25f;
 
 // Declaring functions
 float pitch_PID(float angle,float setpoint,float P,float I, float D);
-float roll_PID(float angle,float setpoint,float P,float I, float Ds);
+float roll_PID(float angle,float setpoint,float P,float I, float D);
 void IMU_init();
 void read_IMU();
 void update_state();
@@ -106,6 +106,8 @@ void read_rc();
 void setup() {
   //Start Serial
   Serial.begin(115200);
+  
+  
   pinMode(28, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(28), read_me, FALLING);
   while(!Serial){
@@ -114,7 +116,7 @@ void setup() {
   delay(5000);
 
   
- Serial.println("Type 'go' to start.");
+  Serial.println("Type 'go' to start.");
   Wire.begin();
   // //wait for the radio to connect
   // while (ch[1] ==-1000 && ch[2] == -1000 && ch[3] == -1000 && ch[4] ==-1000 && ch[5]==-1000){
@@ -132,9 +134,9 @@ void setup() {
   starboardMotor.write(0);
   portMotor.write(0);
   portServo.attach(9);
-  portServo.write(68);
+  portServo.write(70);
   starboardServo.attach(7);
-  starboardServo.write(56);
+  starboardServo.write(57);
   IMU_init();
   delay(500);
   while (true) {
@@ -151,10 +153,8 @@ void setup() {
       }
     }
   }
-    // enabling interrupt at pin 28
-  portServo.write(65);
-  portMotor.write(65);
-  // Initializing IMU
+
+  // Initializing PID interval timer
   PIDtimer = millis();
 
   // Enables IMU calibration functionality, stops in an infinite loop
@@ -177,79 +177,102 @@ void setup() {
 
     while(1);
   #endif
+  
 }
 
 void loop() {
-  
-
   // Main flight controller loop
+
+  Serial.print("");
+
   //read radio commands
   read_rc();
+  /*
   Serial.print(ch[1]);Serial.print("\t");
   Serial.print(ch[2]);Serial.print("\t");
   Serial.print(ch[3]);Serial.print("\t");
   Serial.print(ch[4]);Serial.print("\t");
   Serial.print(ch[5]);Serial.print("\t");
   Serial.print(ch[6]);Serial.print("\n");
-  delay(100);
+  */
 
   // Get IMU data and process it to update orientation
   read_IMU();
   update_state();
+
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
   desired_throttle = ch[3] * 0.18;
-  desired_roll = (ch[1]-500)*.05;
-  Serial.println(desired_throttle);
-  starboardMotor.write(desired_throttle-desired_roll);
-  portMotor.write(desired_throttle+desired_roll);
-  // //Start PID cycle timer
-  // if (millis() - PIDtimer > 50){
-  //   // Calculating pitch correction
-  //   float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
-  //   portServo.writeMicroseconds(degree2ms(65.0f + pitch_correction));
-  //   starboardServo.writeMicroseconds(degree2ms(65.0f - pitch_correction)); 
-  //   /*
-  //   Serial.print(pitch_angle);
-  //   Serial.print(" Port ");
-  //   Serial.print(portServo.read());
-  //   Serial.print(" Starboard ");
-  //   Serial.print(starboardServo.read());
-  //   Serial.print(" Correction ");
-  //   Serial.println(pitch_correction);
-  //   */
+  
+  // desired_roll = (ch[1]-500)*.05;
+  // Serial.println(desired_throttle);
+  // starboardMotor.write(desired_throttle-desired_roll);
+  // portMotor.write(desired_throttle+desired_roll);
+  
 
-  //   // Calculating roll correction
-  //   float roll_correction = roll_PID(roll_angle, 0, Rp, Ri, Rd);
-  //   // Prevent overflow if write values are too large or small
-  //   if (starboardMotor.read() - roll_correction >= 180){
-  //     starboardMotor.writeMicroseconds(degree2ms(180));
-  //   }
-  //   else if (starboardMotor.read() - roll_correction <=0){
-  //     starboardMotor.writeMicroseconds(degree2ms(0));
-  //   }
-  //   else{
-  //     starboardMotor.writeMicroseconds(degree2ms(desired_throttle - roll_correction));
-  //   }
-  //   if (portMotor.read() + roll_correction >= 180){
-  //     portMotor.writeMicroseconds(degree2ms(180));
-  //   }
-  //   else if (portMotor.read() + roll_correction <= 0){
-  //     portMotor.writeMicroseconds(degree2ms(0));
-  //   }
-  //   else{
-  //     portMotor.writeMicroseconds(degree2ms(desired_throttle + roll_correction));
-  //   }
-  //   PIDtimer = millis();
-  //   /*
-  //   Serial.print(roll_angle);
-  //   Serial.print(" Port ");
-  //   Serial.print(portMotor.read());
-  //   Serial.print(" Starboard ");
-  //   Serial.print(starboardMotor.read());
-  //   Serial.print(" Correction ");
-  //   Serial.println(roll_correction);
-  //   */
-  // }
+  //Start PID cycle timer
+  if (millis() - PIDtimer > 50){
+    // Calculating pitch correction
+    float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
+    if (portServo.read() - pitch_correction <= 70.0f - 35.0f) {
+      portServo.writeMicroseconds(degree2ms(70.0f - 35.0f));
+    } else if (portServo.read() + pitch_correction >= 70.0f + 35.0f) {
+      portServo.writeMicroseconds(degree2ms(70.0f + 35.0f));
+    } else {
+      portServo.writeMicroseconds(degree2ms(70.0f - pitch_correction));
+    }
+    if (starboardServo.read() - pitch_correction <= 57.0f - 35.0f) {
+      starboardServo.writeMicroseconds(degree2ms(57.0f - 35.0f));
+    } else if (starboardServo.read() + pitch_correction >= 57.0f + 35.0f) {
+      starboardServo.writeMicroseconds(degree2ms(57.0f + 35.0f));
+    } else {
+      starboardServo.writeMicroseconds(degree2ms(57.0f - pitch_correction));
+    }
+
+    /*
+    Serial.print(pitch_angle);
+    Serial.print(" Port ");
+    Serial.print(portServo.read());
+    Serial.print(" Starboard ");
+    Serial.print(starboardServo.read());
+    Serial.print(" Correction ");
+    Serial.println(pitch_correction);
+    */
+
+    // Calculating roll correction
+    float roll_correction = roll_PID(roll_angle, 0, Rp, Ri, Rd);
+    // Prevent overflow if write values are too large or small
+    if (starboardMotor.read() - roll_correction >= 180){
+      starboardMotor.writeMicroseconds(degree2ms(180));
+    }
+    else if (starboardMotor.read() - roll_correction <=0){
+      starboardMotor.writeMicroseconds(degree2ms(0));
+    }
+    else{
+      starboardMotor.writeMicroseconds(degree2ms(desired_throttle - roll_correction));
+    }
+    if (portMotor.read() + roll_correction >= 180){
+      portMotor.writeMicroseconds(degree2ms(180));
+    }
+    else if (portMotor.read() + roll_correction <= 0){
+      portMotor.writeMicroseconds(degree2ms(0));
+    }
+    else{
+      portMotor.writeMicroseconds(degree2ms(desired_throttle + roll_correction));
+    }
+    PIDtimer = millis();
+    
+    
+    Serial.print(desired_throttle);
+    Serial.print(" ");
+    Serial.print(roll_angle);
+    Serial.print(" Port ");
+    Serial.print(portMotor.read());
+    Serial.print(" Starboard ");
+    Serial.print(starboardMotor.read());
+    Serial.print(" Correction ");
+    Serial.println(roll_correction);
+    
+  }
 }
     
 
