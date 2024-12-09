@@ -65,7 +65,7 @@ float yaw_angle;
 
 // Defining desired controller values
 float desired_throttle;
-
+float desired_roll;
 // Defining a vector to hold quaternion
 float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
 
@@ -185,18 +185,24 @@ void loop() {
   // Main flight controller loop
   //read radio commands
   read_rc();
-
+  Serial.print(ch[1]);Serial.print("\t");
+  Serial.print(ch[2]);Serial.print("\t");
+  Serial.print(ch[3]);Serial.print("\t");
+  Serial.print(ch[4]);Serial.print("\t");
+  Serial.print(ch[5]);Serial.print("\t");
+  Serial.print(ch[6]);Serial.print("\n");
   delay(100);
 
   // Get IMU data and process it to update orientation
   read_IMU();
   update_state();
-
+//Avacado10
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
   desired_throttle = ch[3] * 0.18;
+  desired_roll = (ch[1]-500)*.05;
   Serial.println(desired_throttle);
-  starboardMotor.write(desired_throttle);
-  portMotor.write(desired_throttle);
+  starboardMotor.write(desired_throttle-desired_roll);
+  portMotor.write(desired_throttle+desired_roll);
   // //Start PID cycle timer
   // if (millis() - PIDtimer > 50){
   //   // Calculating pitch correction
