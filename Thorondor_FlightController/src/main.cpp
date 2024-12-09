@@ -196,7 +196,6 @@ void loop() {
   // Get IMU data and process it to update orientation
   read_IMU();
   update_state();
-//Avacado10
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
   desired_throttle = ch[3] * 0.18;
   desired_roll = (ch[1]-500)*.05;
