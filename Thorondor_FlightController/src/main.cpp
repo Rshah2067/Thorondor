@@ -66,6 +66,8 @@ float yaw_angle;
 // Defining desired controller values
 float desired_throttle;
 float desired_roll;
+float desired_yaw;
+
 // Defining a vector to hold quaternion
 float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
 
@@ -79,12 +81,12 @@ float dT = 0.005; // Setting timestep for Madgwick (seconds)
 float PIDtimer;
 float pitch_error;
 float roll_error;
-float Rp = 0.005f;
+float Rp = 0.4f;
 float Ri = 0.0f;
-float Rd = 0.01f;
-float Pp = 0.75f;
+float Rd = 0.05f;
+float Pp = 0.3f;
 float Pi = 0.0f;
-float Pd = 0.25f;
+float Pd = 0.3f;
 
 // Declaring functions
 float pitch_PID(float angle,float setpoint,float P,float I, float D);
@@ -99,10 +101,7 @@ float degree2ms(float degrees);
 void read_me();
 void read_rc();
 
-//NOTES:
-//Starboard servo nuetral position is 135, max back is 180
-//Port servo nuetral is 75 max back is 0
-//Servo Gear ratio is 2:1
+
 void setup() {
   //Start Serial
   Serial.begin(115200);
@@ -202,6 +201,8 @@ void loop() {
 
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
   desired_throttle = ch[3] * 0.18;
+
+  desired_yaw = (ch[4]-500) * 0.05;
   
   // desired_roll = (ch[1]-500)*.05;
   // Serial.println(desired_throttle);
@@ -218,14 +219,14 @@ void loop() {
     } else if (portServo.read() + pitch_correction >= 70.0f + 35.0f) {
       portServo.writeMicroseconds(degree2ms(70.0f + 35.0f));
     } else {
-      portServo.writeMicroseconds(degree2ms(70.0f - pitch_correction));
+      portServo.writeMicroseconds(degree2ms(70.0f - pitch_correction + desired_yaw));
     }
     if (starboardServo.read() - pitch_correction <= 57.0f - 35.0f) {
       starboardServo.writeMicroseconds(degree2ms(57.0f - 35.0f));
     } else if (starboardServo.read() + pitch_correction >= 57.0f + 35.0f) {
       starboardServo.writeMicroseconds(degree2ms(57.0f + 35.0f));
     } else {
-      starboardServo.writeMicroseconds(degree2ms(57.0f - pitch_correction));
+      starboardServo.writeMicroseconds(degree2ms(57.0f + pitch_correction + desired_yaw));
     }
 
     /*
@@ -261,16 +262,14 @@ void loop() {
     }
     PIDtimer = millis();
     
-    
-    Serial.print(desired_throttle);
     Serial.print(" ");
-    Serial.print(roll_angle);
+    Serial.print(pitch_angle);
     Serial.print(" Port ");
-    Serial.print(portMotor.read());
+    Serial.print(portServo.read());
     Serial.print(" Starboard ");
-    Serial.print(starboardMotor.read());
+    Serial.print(starboardServo.read());
     Serial.print(" Correction ");
-    Serial.println(roll_correction);
+    Serial.println(pitch_correction);
     
   }
 }
