@@ -34,7 +34,8 @@ Servo portServo;
 
 //Initialize IMU
 MPU9250 mpu;
-
+//Watchdog timer
+float watchdog;
 // IMU error parameters, manually enter them after calibration
 // These values are calibrated for test stand purposes
 const float MagErrorX = 343.54f;
@@ -155,7 +156,8 @@ void setup() {
 
   // Initializing PID interval timer
   PIDtimer = millis();
-
+  //watch dog timer that monitors if the radio has disconnected.
+  watchdog = millis();
   // Enables IMU calibration functionality, stops in an infinite loop
   #ifdef IMU_CALIBRATION
     // IMU Calibration
@@ -200,6 +202,7 @@ void loop() {
   update_state();
 
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
+  
   desired_throttle = ch[3] * 0.18;
 
   desired_yaw = (ch[4]-500) * 0.05;
@@ -213,64 +216,72 @@ void loop() {
   //Start PID cycle timer
   if (millis() - PIDtimer > 50){
     // Calculating pitch correction
-    float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
-    if (portServo.read() - pitch_correction <= 70.0f - 35.0f) {
-      portServo.writeMicroseconds(degree2ms(70.0f - 35.0f));
-    } else if (portServo.read() + pitch_correction >= 70.0f + 35.0f) {
-      portServo.writeMicroseconds(degree2ms(70.0f + 35.0f));
-    } else {
-      portServo.writeMicroseconds(degree2ms(70.0f - pitch_correction + desired_yaw));
-    }
-    if (starboardServo.read() - pitch_correction <= 57.0f - 35.0f) {
-      starboardServo.writeMicroseconds(degree2ms(57.0f - 35.0f));
-    } else if (starboardServo.read() + pitch_correction >= 57.0f + 35.0f) {
-      starboardServo.writeMicroseconds(degree2ms(57.0f + 35.0f));
-    } else {
-      starboardServo.writeMicroseconds(degree2ms(57.0f + pitch_correction + desired_yaw));
-    }
+    //Failsafe
+    if (millis()-watchdog <100){
+      float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
+      if (portServo.read() - pitch_correction <= 70.0f - 35.0f) {
+        portServo.writeMicroseconds(degree2ms(70.0f - 35.0f));
+      } else if (portServo.read() + pitch_correction >= 70.0f + 35.0f) {
+        portServo.writeMicroseconds(degree2ms(70.0f + 35.0f));
+      } else {
+        portServo.writeMicroseconds(degree2ms(70.0f - pitch_correction + desired_yaw));
+      }
+      if (starboardServo.read() - pitch_correction <= 57.0f - 35.0f) {
+        starboardServo.writeMicroseconds(degree2ms(57.0f - 35.0f));
+      } else if (starboardServo.read() + pitch_correction >= 57.0f + 35.0f) {
+        starboardServo.writeMicroseconds(degree2ms(57.0f + 35.0f));
+      } else {
+        starboardServo.writeMicroseconds(degree2ms(57.0f + pitch_correction + desired_yaw));
+      }
 
-    /*
-    Serial.print(pitch_angle);
-    Serial.print(" Port ");
-    Serial.print(portServo.read());
-    Serial.print(" Starboard ");
-    Serial.print(starboardServo.read());
-    Serial.print(" Correction ");
-    Serial.println(pitch_correction);
-    */
+      /*
+      Serial.print(pitch_angle);
+      Serial.print(" Port ");
+      Serial.print(portServo.read());
+      Serial.print(" Starboard ");
+      Serial.print(starboardServo.read());
+      Serial.print(" Correction ");
+      Serial.println(pitch_correction);
+      */
 
-    // Calculating roll correction
-    float roll_correction = roll_PID(roll_angle, 0, Rp, Ri, Rd);
-    // Prevent overflow if write values are too large or small
-    if (starboardMotor.read() - roll_correction >= 180){
-      starboardMotor.writeMicroseconds(degree2ms(180));
+      // Calculating roll correction
+      float roll_correction = roll_PID(roll_angle, 0, Rp, Ri, Rd);
+      // Prevent overflow if write values are too large or small
+      if (starboardMotor.read() - roll_correction >= 180){
+        starboardMotor.writeMicroseconds(degree2ms(180));
+      }
+      else if (starboardMotor.read() - roll_correction <=0){
+        starboardMotor.writeMicroseconds(degree2ms(0));
+      }
+      else{
+        starboardMotor.writeMicroseconds(degree2ms(desired_throttle - roll_correction));
+      }
+      if (portMotor.read() + roll_correction >= 180){
+        portMotor.writeMicroseconds(degree2ms(180));
+      }
+      else if (portMotor.read() + roll_correction <= 0){
+        portMotor.writeMicroseconds(degree2ms(0));
+      }
+      else{
+        portMotor.writeMicroseconds(degree2ms(desired_throttle + roll_correction));
+      }
+      PIDtimer = millis();
+      
+      Serial.print(" ");
+      Serial.print(pitch_angle);
+      Serial.print(" Port ");
+      Serial.print(portServo.read());
+      Serial.print(" Starboard ");
+      Serial.print(starboardServo.read());
+      Serial.print(" Correction ");
+      Serial.println(pitch_correction);
     }
-    else if (starboardMotor.read() - roll_correction <=0){
-      starboardMotor.writeMicroseconds(degree2ms(0));
-    }
-    else{
-      starboardMotor.writeMicroseconds(degree2ms(desired_throttle - roll_correction));
-    }
-    if (portMotor.read() + roll_correction >= 180){
-      portMotor.writeMicroseconds(degree2ms(180));
-    }
-    else if (portMotor.read() + roll_correction <= 0){
-      portMotor.writeMicroseconds(degree2ms(0));
-    }
-    else{
-      portMotor.writeMicroseconds(degree2ms(desired_throttle + roll_correction));
-    }
-    PIDtimer = millis();
-    
-    Serial.print(" ");
-    Serial.print(pitch_angle);
-    Serial.print(" Port ");
-    Serial.print(portServo.read());
-    Serial.print(" Starboard ");
-    Serial.print(starboardServo.read());
-    Serial.print(" Correction ");
-    Serial.println(pitch_correction);
-    
+  }
+  //Watchdog has triggered failsafe
+  else{
+    portMotor.write(0);
+    starboardMotor.write(0);
+    Serial.println("Fail Safe Triggered due to Controller Disconnect");
   }
 }
     
@@ -621,7 +632,8 @@ void read_me() {
     // This code reads values from an RC receiver from the PPM pin (Pin 2 or 3)
     // It provides channel values from 0 to 1000
     //    -: ABHILASH :-    //
-
+    //update watchdog timer
+    watchdog = millis();  
     a = micros();  // Store the time value 'a' when the pin value falls
     c = a - b;     // Calculate the time between two peaks
     b = a; 
