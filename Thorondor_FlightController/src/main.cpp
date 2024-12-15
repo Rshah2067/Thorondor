@@ -4,6 +4,7 @@
 #include <Adafruit_Sensor.h>
 #include <Servo.h>
 #include "MPU9250.h"
+#include "Plotter.h"
 
 /*
 Several directive choices
@@ -87,10 +88,10 @@ float dT = 0.005; // Setting timestep for Madgwick (seconds)
 float PIDtimer;
 float pitch_error;
 float roll_error;
-float Rp = 0.2f;
+float Rp = 0.9f;
 float Ri = 0.0f;
-float Rd = 0.1f;
-float Pp = 0.3f;
+float Rd = 0.2f;
+float Pp = 0.3;
 float Pi = 0.0f;
 float Pd = 0.0f;
 
@@ -114,34 +115,23 @@ void setup() {
   
   
   pinMode(28, INPUT_PULLUP);
-  //attachInterrupt(digitalPinToInterrupt(28), read_me, FALLING);
+  attachInterrupt(digitalPinToInterrupt(28), read_me, FALLING);
   while(!Serial){
     
   }
-  delay(2500);
+  delay(1000);
 
   
   Serial.println("Type 'go' to start.");
   Wire.begin();
-  // //wait for the radio to connect
-  // while (ch[1] ==-1000 && ch[2] == -1000 && ch[3] == -1000 && ch[4] ==-1000 && ch[5]==-1000){
-  //   read_rc();
-  //   Serial.println("Waiting For Connection");
-  // }
-  // Serial.print(ch[1]);Serial.print("\t");
-  // Serial.print(ch[2]);Serial.print("\t");
-  // Serial.print(ch[3]);Serial.print("\t");
-  // Serial.print(ch[4]);Serial.print("\t");
-  // Serial.print(ch[5]);Serial.print("\t");
-  // Serial.print(ch[6]);Serial.print("\n");
-  portMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
+  portMotor.attach(27,1000,2000);// attaches the servo on GIO2 to the servo object
   starboardMotor.attach(3,1000,2000);
   starboardMotor.write(0);
   portMotor.write(0);
   portServo.attach(9);
-  portServo.write(70);
+  portServo.write(60);
   starboardServo.attach(7);
-  starboardServo.write(57);
+  starboardServo.write(70);
   IMU_init();
   delay(500);
   while (true) {
@@ -190,6 +180,8 @@ void setup() {
 void loop() {
   // Main flight controller loop
 
+  Serial.print("");
+
   //read radio commands
   read_rc();
 
@@ -219,13 +211,13 @@ void loop() {
   //Start PID cycle timer
   if (millis() - PIDtimer > 50) {
 
-    if (millis() - watchdog < 100) {
+    if (millis() - watchdog < 200) {
       // Calculating pitch correction
       float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
       
       // Constrains servo positioning values to +- 35 units off of equilibrium
-      float starboard_servo_val = constrain(57.0f + pitch_correction + desired_yaw, 57.0f - 35.0f, 57.0f + 35.0f);
-      float port_servo_val = constrain(70.0f - pitch_correction + desired_yaw, 70.0f - 35.0f, 70.0f + 35.0f);
+      float starboard_servo_val = constrain(70.0f + pitch_correction + desired_yaw, 70.0f - 40.0f, 70.0f + 40.0f);
+      float port_servo_val = constrain(60.0f - pitch_correction + desired_yaw, 60.0f - 40.0f, 60.0f + 40.0f);
       
       // writes servo position values
       starboardServo.writeMicroseconds(degree2ms(starboard_servo_val));
@@ -248,9 +240,9 @@ void loop() {
       }
 
       PIDtimer = millis();
-      
+
       // Print for debugging
-      /*
+      
       Serial.print(" Roll Angle: ");
       Serial.print(roll_angle);
       Serial.print(" Throttle: ");
@@ -263,7 +255,7 @@ void loop() {
       Serial.print(roll_error);
       Serial.print(" Motor Correction: ");
       Serial.println(roll_correction);
-      */
+      /*
       Serial.print(" Pitch Angle: ");
       Serial.print(pitch_angle);
       Serial.print(" Port Servo: ");
@@ -273,11 +265,14 @@ void loop() {
       Serial.print(" Pitch Error: ");
       Serial.print(pitch_error);
       Serial.print(" Servo Correction: ");
-      Serial.println(pitch_correction);   
+      Serial.println(pitch_correction);
+      */
     } else {
         portMotor.write(0);
         starboardMotor.write(0);
-        Serial.println("Fail Safe Triggered due to Controller Disconnect");
+        Serial.print("Watchdog triggered");
+        Serial.println(watchdog);
+        PIDtimer = millis();
       }
   }
 }
