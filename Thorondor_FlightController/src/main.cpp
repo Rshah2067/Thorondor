@@ -4,6 +4,7 @@
 #include <Adafruit_Sensor.h>
 #include <Servo.h>
 #include "MPU9250.h"
+#include "Plotter.h"
 
 /*
 Several directive choices
@@ -17,7 +18,7 @@ YAW_TEST: Allows yaw testing
 OWN_FUNC: using own IMU udpate functions
 LIB_FUNC: using library IMU update functions
 */
-#define OWN_FUNC
+#define LIB_FUNC
 
 
 //variables for reading Radio Signal
@@ -34,24 +35,26 @@ Servo portServo;
 
 //Initialize IMU
 MPU9250 mpu;
-//Watchdog timer
+
+// Watchdog timer
 float watchdog;
+
 // IMU error parameters, manually enter them after calibration
 // These values are calibrated for test stand purposes
-const float MagErrorX = 343.54f;
-const float MagErrorY = -354.35f;
-const float MagErrorZ = 814.17f;
-const float MagScaleX = 1.59f;
-const float MagScaleY = 1.12f;
-const float MagScaleZ = 0.68f;
+const float MagErrorX = 417.82f;
+const float MagErrorY = 61.70f;
+const float MagErrorZ = 28.78f;
+const float MagScaleX = 1.01f;
+const float MagScaleY = 0.86f;
+const float MagScaleZ = 1.18f;
 
-const float AccErrorX = 1.89f;
-const float AccErrorY = -27.41f;
-const float AccErrorZ = 2.87f;
+const float AccErrorX = 21.57f;
+const float AccErrorY = -28.17f;
+const float AccErrorZ = -2.25;
 
-const float GyroErrorX = 8.59f;
-const float GyroErrorY = -2.53f;
-const float GyroErrorZ = -0.62f;
+const float GyroErrorX = 8.61f;
+const float GyroErrorY = -2.75f;
+const float GyroErrorZ = -0.41f;
 
 // Defining IMU variables
 float Ax, Ay, Az, Gx, Gy, Gz, Mx, My, Mz;
@@ -62,6 +65,8 @@ const int n_filter_iter = 10;
 // Defining pitch, roll, yaw angles
 float pitch_angle;
 float roll_angle;
+float prev_roll_angle;
+float prev_pitch_angle;
 float yaw_angle;
 
 // Defining desired controller values
@@ -75,19 +80,20 @@ float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
 // Setting Madgwick Filter parameters
 float GyroMeasError = PI * (40.0f / 180.0f); // gyroscope measurement error in rads/s (start at 40 deg/s)
 float GyroMeasDrift = PI * (0.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
-float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta value
+//float B_madgwick = sqrt(3.0f / 4.0f) * GyroMeasError; // compute beta value
+float B_madgwick = 0.7;
 float dT = 0.005; // Setting timestep for Madgwick (seconds)
 
 // Setting PID Constants
 float PIDtimer;
 float pitch_error;
 float roll_error;
-float Rp = 0.4f;
+float Rp = 0.9f;
 float Ri = 0.0f;
-float Rd = 0.05f;
-float Pp = 0.3f;
+float Rd = 0.2f;
+float Pp = 0.3;
 float Pi = 0.0f;
-float Pd = 0.3f;
+float Pd = 0.0f;
 
 // Declaring functions
 float pitch_PID(float angle,float setpoint,float P,float I, float D);
@@ -113,30 +119,19 @@ void setup() {
   while(!Serial){
     
   }
-  delay(5000);
+  delay(1000);
 
   
   Serial.println("Type 'go' to start.");
   Wire.begin();
-  // //wait for the radio to connect
-  // while (ch[1] ==-1000 && ch[2] == -1000 && ch[3] == -1000 && ch[4] ==-1000 && ch[5]==-1000){
-  //   read_rc();
-  //   Serial.println("Waiting For Connection");
-  // }
-  // Serial.print(ch[1]);Serial.print("\t");
-  // Serial.print(ch[2]);Serial.print("\t");
-  // Serial.print(ch[3]);Serial.print("\t");
-  // Serial.print(ch[4]);Serial.print("\t");
-  // Serial.print(ch[5]);Serial.print("\t");
-  // Serial.print(ch[6]);Serial.print("\n");
-  portMotor.attach(2,1000,2000);// attaches the servo on GIO2 to the servo object
+  portMotor.attach(27,1000,2000);// attaches the servo on GIO2 to the servo object
   starboardMotor.attach(3,1000,2000);
   starboardMotor.write(0);
   portMotor.write(0);
   portServo.attach(9);
-  portServo.write(70);
+  portServo.write(60);
   starboardServo.attach(7);
-  starboardServo.write(57);
+  starboardServo.write(70);
   IMU_init();
   delay(500);
   while (true) {
@@ -156,8 +151,9 @@ void setup() {
 
   // Initializing PID interval timer
   PIDtimer = millis();
-  //watch dog timer that monitors if the radio has disconnected.
+
   watchdog = millis();
+
   // Enables IMU calibration functionality, stops in an infinite loop
   #ifdef IMU_CALIBRATION
     // IMU Calibration
@@ -188,6 +184,7 @@ void loop() {
 
   //read radio commands
   read_rc();
+
   /*
   Serial.print(ch[1]);Serial.print("\t");
   Serial.print(ch[2]);Serial.print("\t");
@@ -195,16 +192,16 @@ void loop() {
   Serial.print(ch[4]);Serial.print("\t");
   Serial.print(ch[5]);Serial.print("\t");
   Serial.print(ch[6]);Serial.print("\n");
-  */
+  */  
 
   // Get IMU data and process it to update orientation
   read_IMU();
-  update_state();
+  //update_state();
 
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
   
   desired_throttle = ch[3] * 0.18;
-
+  
   desired_yaw = (ch[4]-500) * 0.05;
   
   // desired_roll = (ch[1]-500)*.05;
@@ -212,79 +209,74 @@ void loop() {
   // starboardMotor.write(desired_throttle-desired_roll);
   // portMotor.write(desired_throttle+desired_roll);
   
-
   //Start PID cycle timer
-  if (millis() - PIDtimer > 50){
-    // Calculating pitch correction
-    //Failsafe
-    if (millis()-watchdog <100){
+  if (millis() - PIDtimer > 50) {
+
+    if (millis() - watchdog < 200) {
+      // Calculating pitch correction
       float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
-      if (portServo.read() - pitch_correction <= 70.0f - 35.0f) {
-        portServo.writeMicroseconds(degree2ms(70.0f - 35.0f));
-      } else if (portServo.read() + pitch_correction >= 70.0f + 35.0f) {
-        portServo.writeMicroseconds(degree2ms(70.0f + 35.0f));
-      } else {
-        portServo.writeMicroseconds(degree2ms(70.0f - pitch_correction + desired_yaw));
-      }
-      if (starboardServo.read() - pitch_correction <= 57.0f - 35.0f) {
-        starboardServo.writeMicroseconds(degree2ms(57.0f - 35.0f));
-      } else if (starboardServo.read() + pitch_correction >= 57.0f + 35.0f) {
-        starboardServo.writeMicroseconds(degree2ms(57.0f + 35.0f));
-      } else {
-        starboardServo.writeMicroseconds(degree2ms(57.0f + pitch_correction + desired_yaw));
-      }
-
-      /*
-      Serial.print(pitch_angle);
-      Serial.print(" Port ");
-      Serial.print(portServo.read());
-      Serial.print(" Starboard ");
-      Serial.print(starboardServo.read());
-      Serial.print(" Correction ");
-      Serial.println(pitch_correction);
-      */
-
+      
+      // Constrains servo positioning values to +- 35 units off of equilibrium
+      float starboard_servo_val = constrain(70.0f + pitch_correction + desired_yaw, 70.0f - 40.0f, 70.0f + 40.0f);
+      float port_servo_val = constrain(60.0f - pitch_correction + desired_yaw, 60.0f - 40.0f, 60.0f + 40.0f);
+      
+      // writes servo position values
+      starboardServo.writeMicroseconds(degree2ms(starboard_servo_val));
+      portServo.writeMicroseconds(degree2ms(port_servo_val));
+      
       // Calculating roll correction
       float roll_correction = roll_PID(roll_angle, 0, Rp, Ri, Rd);
-      // Prevent overflow if write values are too large or small
-      if (starboardMotor.read() - roll_correction >= 180){
-        starboardMotor.writeMicroseconds(degree2ms(180));
+
+      // Constrains servo positioning values to +- 35 units off of equilibrium
+      float starboard_motor_val = constrain(desired_throttle + roll_correction, 0.0f, 170.0f);
+      float port_motor_val = constrain(desired_throttle - roll_correction, 0.0f, 170.0f);
+    
+      // writes motor speed values, only if throttle value is above threshold
+      if (desired_throttle > 5.0f) {
+        starboardMotor.writeMicroseconds(degree2ms(starboard_motor_val));
+        portMotor.writeMicroseconds(degree2ms(port_motor_val));
+      } else {
+        starboardMotor.write(0);
+        portMotor.write(0);
       }
-      else if (starboardMotor.read() - roll_correction <=0){
-        starboardMotor.writeMicroseconds(degree2ms(0));
-      }
-      else{
-        starboardMotor.writeMicroseconds(degree2ms(desired_throttle - roll_correction));
-      }
-      if (portMotor.read() + roll_correction >= 180){
-        portMotor.writeMicroseconds(degree2ms(180));
-      }
-      else if (portMotor.read() + roll_correction <= 0){
-        portMotor.writeMicroseconds(degree2ms(0));
-      }
-      else{
-        portMotor.writeMicroseconds(degree2ms(desired_throttle + roll_correction));
-      }
+
       PIDtimer = millis();
+
+      // Print for debugging
       
-      Serial.print(" ");
+      Serial.print(" Roll Angle: ");
+      Serial.print(roll_angle);
+      Serial.print(" Throttle: ");
+      Serial.print(desired_throttle);
+      Serial.print(" Port Motor: ");
+      Serial.print(portMotor.read());
+      Serial.print(" Stardboard Motor: ");
+      Serial.print(starboardMotor.read());
+      Serial.print(" Roll Error: ");
+      Serial.print(roll_error);
+      Serial.print(" Motor Correction: ");
+      Serial.println(roll_correction);
+      /*
+      Serial.print(" Pitch Angle: ");
       Serial.print(pitch_angle);
-      Serial.print(" Port ");
+      Serial.print(" Port Servo: ");
       Serial.print(portServo.read());
-      Serial.print(" Starboard ");
+      Serial.print(" Stardboard Servo: ");
       Serial.print(starboardServo.read());
-      Serial.print(" Correction ");
+      Serial.print(" Pitch Error: ");
+      Serial.print(pitch_error);
+      Serial.print(" Servo Correction: ");
       Serial.println(pitch_correction);
-    }
-  }
-  //Watchdog has triggered failsafe
-  else{
-    portMotor.write(0);
-    starboardMotor.write(0);
-    Serial.println("Fail Safe Triggered due to Controller Disconnect");
+      */
+    } else {
+        portMotor.write(0);
+        starboardMotor.write(0);
+        Serial.print("Watchdog triggered");
+        Serial.println(watchdog);
+        PIDtimer = millis();
+      }
   }
 }
-    
 
 // When there is positive error, aircraft is rolled to port of desired angle (positive correction should be added to the port motor, substracted form starboard)
 // When there is positive error, aircraft is rolled to starboard of desired angle (positive correction should be added to starboard motor, substracted form port)
@@ -305,7 +297,6 @@ float pitch_PID(float angle, float setpoint, float P, float I, float D){
   float correction = P * pitch_error + I * pitch_error * 0.05f + D * (roll_error - previous_pitch_error) / 0.05f;
   return correction;
 }
-
 
 void IMU_init() {
   /* 
@@ -443,10 +434,24 @@ void update_state() {
   a32 = 2.0f * (qx * qz - qw * qy);
   a33 = qw * qw - qx * qx - qy * qy + qz * qz;
 
+
+  prev_roll_angle = roll_angle;
+  prev_pitch_angle = pitch_angle;
+
   // converting to roll, pitch, yaw
   roll_angle = atan2f(a31, a33) * RAD_TO_DEG;
   pitch_angle = -asinf(a32) * RAD_TO_DEG;
   yaw_angle = atan2f(a12, a22) * RAD_TO_DEG;
+
+  if (abs(roll_angle) > 60) {
+    roll_angle = prev_roll_angle;
+  }
+
+  /*
+  if (abs(pitch_angle) > 45) {
+    pitch_angle = prev_pitch_angle;
+  }
+  */
 
   // If yaw angle exceeds 180, make it negative, vice versa
   if (yaw_angle >= +180.f) {
@@ -632,8 +637,7 @@ void read_me() {
     // This code reads values from an RC receiver from the PPM pin (Pin 2 or 3)
     // It provides channel values from 0 to 1000
     //    -: ABHILASH :-    //
-    //update watchdog timer
-    watchdog = millis();  
+    watchdog = millis();
     a = micros();  // Store the time value 'a' when the pin value falls
     c = a - b;     // Calculate the time between two peaks
     b = a; 
