@@ -38,7 +38,8 @@ MPU9250 mpu;
 
 // Watchdog timer
 float watchdog;
-
+//Radio Flag
+bool newradio = false;
 // IMU error parameters, manually enter them after calibration
 // These values are calibrated for test stand purposes
 const float MagErrorX = 417.82f;
@@ -196,17 +197,23 @@ void loop() {
   */  
 
   // Get IMU data and process it to update orientation
-  read_IMU();
-  //update_state();
+  if(mpu.update()) {
+    yaw_angle = mpu.getYaw();
+    pitch_angle = mpu.getPitch();
+    roll_angle = mpu.getRoll();
+  }  //update_state();
 
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
-  desired_throttle = ch[3] * 0.18f;
-  
-  desired_yaw = (ch[4]-500) * 0.05f;
-  
-  desired_roll = (ch[1]-500) * -0.02f;
+  if (newradio){
+    desired_throttle = ch[3] * 0.18f;
+    
+    desired_yaw = (ch[4]-500) * 0.05f;
+    
+    desired_roll = (ch[1]-500) * -0.02f;
 
-  desired_pitch = (ch[2]-500) * -0.025f;
+    desired_pitch = (ch[2]-500) * -0.025f;
+    newradio = false;
+  }
 
   // Serial.println(desired_throttle);
   // starboardMotor.write(desired_throttle-desired_roll);
@@ -647,6 +654,7 @@ void read_me() {
     // It provides channel values from 0 to 1000
     //    -: ABHILASH :-    //
     watchdog = millis();
+    newradio = true;
     a = micros();  // Store the time value 'a' when the pin value falls
     c = a - b;     // Calculate the time between two peaks
     b = a; 
