@@ -73,6 +73,7 @@ float yaw_angle;
 float desired_throttle;
 float desired_roll;
 float desired_yaw;
+float desired_pitch;
 
 // Defining a vector to hold quaternion
 float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
@@ -88,12 +89,12 @@ float dT = 0.005; // Setting timestep for Madgwick (seconds)
 float PIDtimer;
 float pitch_error;
 float roll_error;
-float Rp = 0.9f;
-float Ri = 0.0f;
-float Rd = 0.2f;
-float Pp = 0.3;
+float Rp = 1.0f;
+float Ri = 0.3f;
+float Rd = 0.125f;
+float Pp = 0.2f;
 float Pi = 0.0f;
-float Pd = 0.0f;
+float Pd = 0.1f;
 
 // Declaring functions
 float pitch_PID(float angle,float setpoint,float P,float I, float D);
@@ -129,9 +130,9 @@ void setup() {
   starboardMotor.write(0);
   portMotor.write(0);
   portServo.attach(9);
-  portServo.write(60);
+  portServo.write(70);
   starboardServo.attach(7);
-  starboardServo.write(70);
+  starboardServo.write(60);
   IMU_init();
   delay(500);
   while (true) {
@@ -199,37 +200,39 @@ void loop() {
   //update_state();
 
   // 0.18 converts PPM (Range 0-1000) to 0-180 for Servo.write()
+  desired_throttle = ch[3] * 0.18f;
   
-  desired_throttle = ch[3] * 0.18;
+  desired_yaw = (ch[4]-500) * 0.05f;
   
-  desired_yaw = (ch[4]-500) * 0.05;
-  
-  // desired_roll = (ch[1]-500)*.05;
+  desired_roll = (ch[1]-500) * -0.02f;
+
+  desired_pitch = (ch[2]-500) * -0.025f;
+
   // Serial.println(desired_throttle);
   // starboardMotor.write(desired_throttle-desired_roll);
   // portMotor.write(desired_throttle+desired_roll);
   
   //Start PID cycle timer
-  if (millis() - PIDtimer > 50) {
+  if (millis() - PIDtimer > 10) {
 
-    if (millis() - watchdog < 200) {
+    if (millis() - watchdog < 100) {
       // Calculating pitch correction
-      float pitch_correction = pitch_PID(pitch_angle, 0, Pp, Pd, Pi);
+      float pitch_correction = pitch_PID(pitch_angle, desired_pitch, Pp, Pd, Pi);
       
       // Constrains servo positioning values to +- 35 units off of equilibrium
-      float starboard_servo_val = constrain(70.0f + pitch_correction + desired_yaw, 70.0f - 40.0f, 70.0f + 40.0f);
-      float port_servo_val = constrain(60.0f - pitch_correction + desired_yaw, 60.0f - 40.0f, 60.0f + 40.0f);
+      float starboard_servo_val = constrain(60.0f - (pitch_correction - desired_yaw), 65.0f - 40.0f, 70.0f + 40.0f);
+      float port_servo_val = constrain(70.0f + (pitch_correction + desired_yaw), 70.0f - 40.0f, 60.0f + 40.0f);
       
       // writes servo position values
       starboardServo.writeMicroseconds(degree2ms(starboard_servo_val));
       portServo.writeMicroseconds(degree2ms(port_servo_val));
       
       // Calculating roll correction
-      float roll_correction = roll_PID(roll_angle, 0, Rp, Ri, Rd);
-
+      float roll_correction = roll_PID(roll_angle, desired_roll, Rp, Ri, Rd);
+  
       // Constrains servo positioning values to +- 35 units off of equilibrium
-      float starboard_motor_val = constrain(desired_throttle + roll_correction, 0.0f, 170.0f);
-      float port_motor_val = constrain(desired_throttle - roll_correction, 0.0f, 170.0f);
+      float starboard_motor_val = constrain(desired_throttle - (roll_correction), 0.0f, 170.0f);
+      float port_motor_val = constrain(desired_throttle + (roll_correction), 0.0f, 170.0f);
     
       // writes motor speed values, only if throttle value is above threshold
       if (desired_throttle > 5.0f) {
@@ -244,7 +247,9 @@ void loop() {
 
       // Print for debugging
       
-      Serial.print(" Roll Angle: ");
+      Serial.print(" Desired Roll: ");
+      Serial.print(desired_roll);
+      Serial.print(" Roll: ");
       Serial.print(roll_angle);
       Serial.print(" Throttle: ");
       Serial.print(desired_throttle);
@@ -256,7 +261,10 @@ void loop() {
       Serial.print(roll_error);
       Serial.print(" Motor Correction: ");
       Serial.println(roll_correction);
+      
       /*
+      Serial.print(" Desired Pitch: ");
+      Serial.print(desired_pitch);
       Serial.print(" Pitch Angle: ");
       Serial.print(pitch_angle);
       Serial.print(" Port Servo: ");
@@ -268,6 +276,7 @@ void loop() {
       Serial.print(" Servo Correction: ");
       Serial.println(pitch_correction);
       */
+
     } else {
         portMotor.write(0);
         starboardMotor.write(0);
@@ -284,7 +293,7 @@ float roll_PID(float angle, float setpoint, float P, float I, float D){
   // Calculates correction signal for roll control
   float previous_roll_error = roll_error;
   roll_error = setpoint - angle;
-  float correction = P * roll_error + I * roll_error * 0.05f + D * (roll_error - previous_roll_error) / 0.05f;
+  float correction = (P * roll_error) + (I * roll_error * 0.01f) + (D * (roll_error - previous_roll_error) / 0.01f);
   return correction;
 }
 
@@ -294,7 +303,7 @@ float pitch_PID(float angle, float setpoint, float P, float I, float D){
   // Calculates correction signal for pitch control
   float previous_pitch_error = pitch_error;
   pitch_error = setpoint - angle;
-  float correction = P * pitch_error + I * pitch_error * 0.05f + D * (roll_error - previous_pitch_error) / 0.05f;
+  float correction = (P * pitch_error) + (I * pitch_error * 0.01f) + (D * (roll_error - previous_pitch_error) / 0.01f);
   return correction;
 }
 
